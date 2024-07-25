@@ -1,0 +1,9 @@
+apiVersion: pathways-api.pathways.domain/v1
+kind: PathwaysAPI
+metadata:
+  labels:
+    app.kubernetes.io/name: pathways-api
+    app.kubernetes.io/managed-by: kustomize
+  name: pathwaysapi-sample
+spec:
+  # TODO(user): Add fields here

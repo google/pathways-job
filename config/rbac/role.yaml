@@ -1,0 +1,32 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - pathways-api.pathways.domain
+  resources:
+  - pathwaysapis
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - pathways-api.pathways.domain
+  resources:
+  - pathwaysapis/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - pathways-api.pathways.domain
+  resources:
+  - pathwaysapis/status
+  verbs:
+  - get
+  - patch
+  - update

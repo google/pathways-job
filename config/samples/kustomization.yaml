@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- pathways-api_v1_pathwaysapi.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
