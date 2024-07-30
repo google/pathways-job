@@ -39,9 +39,16 @@ spec:
           spec:
             description: PathwaysAPISpec defines the desired state of PathwaysAPI
             properties:
-              foo:
-                description: Foo is an example field of PathwaysAPI. Edit pathwaysapi_types.go
-                  to remove/update
+              numSlices:
+                format: int32
+                type: integer
+              textMessage:
+                description: Test message is an example field of PathwaysAPI. Edit
+                  pathwaysapi_types.go to remove/update
+                type: string
+              tpuType:
+                type: string
+              workloadMode:
                 type: string
             type: object
           status:

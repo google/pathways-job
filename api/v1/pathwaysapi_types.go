@@ -28,8 +28,20 @@ type PathwaysAPISpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of PathwaysAPI. Edit pathwaysapi_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// Test message is an example field of PathwaysAPI. Edit pathwaysapi_types.go to remove/update
+	TextMessage  string `json:"textMessage,omitempty"`
+	TpuType      string `json:"tpuType,omitempty"`
+	NumSlices    int32  `json:"numSlices,omitempty"`
+	WorkloadMode string `json:"workloadMode,omitempty"`
+
+	// tpuType: v4-8
+	// numSlices: 12
+	// workloadMode: headless
+	// backoffLimit: 4 # pass this down to JobSet
+	// workloadImage: <AR location of the workload image>
+	// workloadName: <Identifier for this workload>
+	// workloadType: inference # training or inference
+
 }
 
 // PathwaysAPIStatus defines the observed state of PathwaysAPI

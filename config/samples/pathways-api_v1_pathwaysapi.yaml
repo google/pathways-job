@@ -7,3 +7,7 @@ metadata:
   name: pathwaysapi-sample
 spec:
   # TODO(user): Add fields here
+  textMessage: "Hello World 2"
+  tpuType: v4-8
+  numSlices: 2
+  workloadMode: headless
