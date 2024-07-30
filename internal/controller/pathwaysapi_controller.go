@@ -20,11 +20,13 @@ import (
 	"context"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	pathwaysapiv1 "pathways-api/api/v1"
+	pathwaysapi "pathways-api/api/v1"
 )
 
 // PathwaysAPIReconciler reconciles a PathwaysAPI object
@@ -50,6 +52,20 @@ func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	_ = log.FromContext(ctx)
 
 	// TODO(user): your logic here
+	pw := &pathwaysapi.PathwaysAPI{}
+	if err := r.Get(ctx, types.NamespacedName{Name: req.Name, Namespace: req.Namespace}, pw); err != nil {
+		// log.Error(err, "unable to fetch Pathways ")
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysapi", klog.KObj(pw))
+	pwMessage := pw.Spec.TextMessage
+	tpuType := pw.Spec.TpuType
+	numSlices := pw.Spec.NumSlices
+	workloadMode := pw.Spec.WorkloadMode
+
+	ctx = ctrl.LoggerInto(ctx, log)
+
+	log.Info("ROSHANI CONTROLLER WORKING...", "TextMessage", pwMessage, "TpuType", tpuType, "NumSlices", numSlices, "WorkloadMode", workloadMode)
 
 	return ctrl.Result{}, nil
 }
@@ -57,6 +73,6 @@ func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 // SetupWithManager sets up the controller with the Manager.
 func (r *PathwaysAPIReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&pathwaysapiv1.PathwaysAPI{}).
+		For(&pathwaysapi.PathwaysAPI{}).
 		Complete(r)
 }

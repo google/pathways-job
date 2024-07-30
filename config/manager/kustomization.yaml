@@ -1,2 +1,8 @@
 resources:
 - manager.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+images:
+- name: controller
+  newName: us-docker.pkg.dev/cloud-tpu-multipod-dev/pathways/pathwaysapi
+  newTag: latest
