@@ -43,7 +43,7 @@ spec:
                 format: int32
                 type: integer
               textMessage:
-                description: Test message is an example field of PathwaysAPI. Edit
+                description: Text message is an example field of PathwaysAPI. Edit
                   pathwaysapi_types.go to remove/update
                 type: string
               tpuType:

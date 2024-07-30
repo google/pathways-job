@@ -18,13 +18,23 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	jobsetv1alpha2 "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	jobsetclient "sigs.k8s.io/jobset/client-go/clientset/versioned"
 
 	pathwaysapi "pathways-api/api/v1"
 )
@@ -66,6 +76,60 @@ func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	ctx = ctrl.LoggerInto(ctx, log)
 
 	log.Info("ROSHANI CONTROLLER WORKING...", "TextMessage", pwMessage, "TpuType", tpuType, "NumSlices", numSlices, "WorkloadMode", workloadMode)
+
+	// This env variable needs to be set as follows: KUBECONFIG=${HOME}/.kube/config
+	kubeconfig := "/home/roshanin/.kube/config"
+
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		panic(err)
+	}
+	log.Info("Roshani, config established...")
+
+	client := jobsetclient.NewForConfigOrDie(config)
+	log.Info("Roshani, client built...")
+
+	js, err := client.JobsetV1alpha2().JobSets("default").Create(ctx, &jobsetv1alpha2.JobSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: pwMessage,
+		},
+		Spec: jobsetv1alpha2.JobSetSpec{
+			ReplicatedJobs: []jobsetv1alpha2.ReplicatedJob{
+				{
+					Name: "rjob",
+					Template: batchv1.JobTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "job",
+						},
+						Spec: batchv1.JobSpec{
+							Parallelism:  ptr.To(numSlices),
+							Completions:  ptr.To(numSlices),
+							BackoffLimit: ptr.To(int32(0)),
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{
+										{
+											Name:    "bash-container",
+											Image:   "bash:latest",
+											Command: []string{"sleep", "60"},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}, metav1.CreateOptions{})
+
+	if err != nil {
+		panic(err)
+	}
+	log.Info("Roshani, created JobSet...")
+	fmt.Printf("successfully created JobSet: %s\n", js.Name)
+	// Also works -
+	// fmt.Printf("successfully created JobSet: %s\n", js.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.Containers[0].Name)
 
 	return ctrl.Result{}, nil
 }
