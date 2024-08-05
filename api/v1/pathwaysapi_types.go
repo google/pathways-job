@@ -29,10 +29,11 @@ type PathwaysAPISpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Text message is an example field of PathwaysAPI. Edit pathwaysapi_types.go to remove/update
-	TextMessage  string `json:"textMessage,omitempty"`
+	WorkloadName string `json:"workloadName,omitempty"`
 	TpuType      string `json:"tpuType,omitempty"`
 	NumSlices    int32  `json:"numSlices,omitempty"`
 	WorkloadMode string `json:"workloadMode,omitempty"`
+	WorkloadType string `json:"workloadType,omitempty"`
 	// JobSetSpec   jobsetv1alpha2.JobSet `json:"jobSetSpec"`
 }
 

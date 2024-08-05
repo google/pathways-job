@@ -42,13 +42,15 @@ spec:
               numSlices:
                 format: int32
                 type: integer
-              textMessage:
-                description: Text message is an example field of PathwaysAPI. Edit
-                  pathwaysapi_types.go to remove/update
-                type: string
               tpuType:
                 type: string
               workloadMode:
+                type: string
+              workloadName:
+                description: Text message is an example field of PathwaysAPI. Edit
+                  pathwaysapi_types.go to remove/update
+                type: string
+              workloadType:
                 type: string
             type: object
           status:
