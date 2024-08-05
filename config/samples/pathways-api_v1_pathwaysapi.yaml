@@ -7,7 +7,8 @@ metadata:
   name: pathwaysapi-sample
 spec:
   # TODO(user): Add fields here
-  textMessage: "roshani-jobset3"
+  workloadName: "roshani-lws-3"
   tpuType: v4-8
   numSlices: 2
   workloadMode: headless
+  workloadType: inference

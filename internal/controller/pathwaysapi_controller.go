@@ -35,6 +35,8 @@ import (
 
 	jobsetv1alpha2 "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	jobsetclient "sigs.k8s.io/jobset/client-go/clientset/versioned"
+	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
+	lwsclient "sigs.k8s.io/lws/client-go/clientset/versioned"
 
 	pathwaysapi "pathways-api/api/v1"
 )
@@ -68,10 +70,11 @@ func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysapi", klog.KObj(pw))
-	pwMessage := pw.Spec.TextMessage
+	pwMessage := pw.Spec.WorkloadName
 	tpuType := pw.Spec.TpuType
 	numSlices := pw.Spec.NumSlices
 	workloadMode := pw.Spec.WorkloadMode
+	workloadType := pw.Spec.WorkloadType
 
 	ctx = ctrl.LoggerInto(ctx, log)
 
@@ -86,32 +89,87 @@ func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	log.Info("Roshani, config established...")
 
-	client := jobsetclient.NewForConfigOrDie(config)
+	client := lwsclient.NewForConfigOrDie(config)
 	log.Info("Roshani, client built...")
-
-	js, err := client.JobsetV1alpha2().JobSets("default").Create(ctx, &jobsetv1alpha2.JobSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: pwMessage,
-		},
-		Spec: jobsetv1alpha2.JobSetSpec{
-			ReplicatedJobs: []jobsetv1alpha2.ReplicatedJob{
-				{
-					Name: "rjob",
-					Template: batchv1.JobTemplateSpec{
+	if workloadType == "inference" {
+		lws, err := client.LeaderworkersetV1().LeaderWorkerSets("default").Create(ctx, &leaderworkersetv1.LeaderWorkerSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: pwMessage,
+			},
+			Spec: leaderworkersetv1.LeaderWorkerSetSpec{
+				Replicas: ptr.To(numSlices),
+				LeaderWorkerTemplate: leaderworkersetv1.LeaderWorkerTemplate{
+					LeaderTemplate: &corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
-							Name: "job",
+							Name: workloadType,
 						},
-						Spec: batchv1.JobSpec{
-							Parallelism:  ptr.To(numSlices),
-							Completions:  ptr.To(numSlices),
-							BackoffLimit: ptr.To(int32(0)),
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{
-											Name:    "bash-container",
-											Image:   "bash:latest",
-											Command: []string{"sleep", "60"},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name:    "bash-container",
+									Image:   "bash:latest",
+									Command: []string{"/bin/sh"},
+									Args:    []string{"-c", "while true; do echo hello; sleep 10; done"},
+								},
+							},
+							// RestartPolicy: "Never",
+						},
+					},
+					WorkerTemplate: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "workers",
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name:    "bash-container",
+									Image:   "bash:latest",
+									Command: []string{"/bin/sh"},
+									Args:    []string{"-c", "while true; do echo hello; sleep 10; done"},
+								},
+							},
+							// RestartPolicy: "Never",
+						},
+					},
+					Size: ptr.To(int32(2)),
+				},
+				StartupPolicy: "LeaderReady",
+			},
+		}, metav1.CreateOptions{})
+		if err != nil {
+			panic(err)
+		}
+		log.Info("Roshani, created LeaderWorkerSet...")
+		fmt.Printf("successfully created LeaderWorkerSet: %s\n", lws.Name)
+	} else if workloadType == "training" {
+		// JobSet works ---
+		client := jobsetclient.NewForConfigOrDie(config)
+
+		js, err := client.JobsetV1alpha2().JobSets("default").Create(ctx, &jobsetv1alpha2.JobSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: pwMessage,
+			},
+			Spec: jobsetv1alpha2.JobSetSpec{
+				ReplicatedJobs: []jobsetv1alpha2.ReplicatedJob{
+					{
+						Name: "rjob",
+						Template: batchv1.JobTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "job",
+							},
+							Spec: batchv1.JobSpec{
+								Parallelism:  ptr.To(numSlices),
+								Completions:  ptr.To(numSlices),
+								BackoffLimit: ptr.To(int32(0)),
+								Template: corev1.PodTemplateSpec{
+									Spec: corev1.PodSpec{
+										Containers: []corev1.Container{
+											{
+												Name:    "bash-container",
+												Image:   "bash:latest",
+												Command: []string{"echo"},
+												Args:    []string{"Hello"},
+											},
 										},
 									},
 								},
@@ -120,16 +178,19 @@ func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 					},
 				},
 			},
-		},
-	}, metav1.CreateOptions{})
-
-	if err != nil {
-		panic(err)
+		}, metav1.CreateOptions{})
+		if err != nil {
+			panic(err)
+		}
+		log.Info("Roshani, created JobSet...")
+		fmt.Printf("successfully created JobSet: %s\n", js.Name)
 	}
-	log.Info("Roshani, created JobSet...")
-	fmt.Printf("successfully created JobSet: %s\n", js.Name)
+
 	// Also works -
+	// fmt.Printf("successfully created JobSet: %s\n", js.Name)
 	// fmt.Printf("successfully created JobSet: %s\n", js.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.Containers[0].Name)
+	// Scribe for tracking JobSet, reconciliation calls for events
+	// k8 APIs queries.
 
 	return ctrl.Result{}, nil
 }
@@ -138,5 +199,6 @@ func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 func (r *PathwaysAPIReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&pathwaysapi.PathwaysAPI{}).
+		// For JobSet and LWS
 		Complete(r)
 }
