@@ -30,3 +30,6 @@ rules:
   - get
   - patch
   - update
+- apiGroups: ["leaderworkerset.x-k8s.io"]
+  resources: ["leaderworkersets"]
+  verbs: ["create", "update", "delete"]
