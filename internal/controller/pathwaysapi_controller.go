@@ -22,7 +22,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -38,6 +37,11 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 	lwsclient "sigs.k8s.io/lws/client-go/clientset/versioned"
 
+	// jobsetv1alpha2 "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	// jobsetclient "sigs.k8s.io/jobset/client-go/clientset/versioned"
+	// leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
+	// lwsclient "sigs.k8s.io/lws/client-go/clientset/versioned"
+
 	pathwaysapi "pathways-api/api/v1"
 )
 
@@ -46,10 +50,6 @@ type PathwaysAPIReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
-
-// +kubebuilder:rbac:groups=pathways-api.pathways.domain,resources=pathwaysapis,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=pathways-api.pathways.domain,resources=pathwaysapis/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=pathways-api.pathways.domain,resources=pathwaysapis/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -60,6 +60,12 @@ type PathwaysAPIReconciler struct {
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.18.4/pkg/reconcile
+
+// +kubebuilder:rbac:groups=pathways-api.pathways.domain,resources=pathwaysapis,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=pathways-api.pathways.domain,resources=pathwaysapis/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=pathways-api.pathways.domain,resources=pathwaysapis/finalizers,verbs=update
+// +kubebuilder:rbac:groups=leaderworkerset.x-k8s.io,resources=leaderworkersets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=leaderworkerset.x-k8s.io,resources=leaderworkersets/status,verbs=get;update;patch
 func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
@@ -80,70 +86,165 @@ func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	log.Info("ROSHANI CONTROLLER WORKING...", "TextMessage", pwMessage, "TpuType", tpuType, "NumSlices", numSlices, "WorkloadMode", workloadMode)
 
-	// This env variable needs to be set as follows: KUBECONFIG=${HOME}/.kube/config
-	kubeconfig := "/home/roshanin/.kube/config"
-
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-	if err != nil {
-		panic(err)
-	}
+	kubeconfig := ctrl.GetConfigOrDie()
 	log.Info("Roshani, config established...")
 
-	client := lwsclient.NewForConfigOrDie(config)
+	truth := true
+	size := int32(5) // total number of workers (across all slices) + 1
+	replicas := int32(1)
+	fmt.Printf("Replicas: %d , Size: %d \n", replicas, size)
+
+	client := lwsclient.NewForConfigOrDie(kubeconfig)
 	log.Info("Roshani, client built...")
 	if workloadType == "inference" {
 		lws, err := client.LeaderworkersetV1().LeaderWorkerSets("default").Create(ctx, &leaderworkersetv1.LeaderWorkerSet{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: pwMessage,
+				Name:        pwMessage,
+				Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/exclusive-topology": "cloud.google.com/gke-nodepool"},
 			},
 			Spec: leaderworkersetv1.LeaderWorkerSetSpec{
-				Replicas: ptr.To(numSlices),
+				Replicas:      ptr.To(replicas),
+				StartupPolicy: "LeaderCreated", // this seems to be a mandatory field now
 				LeaderWorkerTemplate: leaderworkersetv1.LeaderWorkerTemplate{
+					Size: ptr.To(size),
 					LeaderTemplate: &corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
-							Name: workloadType,
+							Name:   workloadType,
+							Labels: map[string]string{"xpk.google.com/workload": "pathways-headless"},
 						},
 						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{
+							// NodeSelector: map[string]string{"cloud.google.com/gke-tpu-accelerator": "tpu-v5-lite-podslice", "cloud.google.com/gke-tpu-topology": "4x4"},
+							// NodeSelector: map[string]string{"cloud.google.com/gke-tpu-accelerator": "tpu-v4-podslice", "cloud.google.com/gke-tpu-topology": "2x2x1"},
+							NodeSelector: map[string]string{"cloud.google.com/gke-tpu-accelerator": "tpu-v4-podslice", "cloud.google.com/gke-tpu-topology": "2x2x2"},
+							Tolerations: []corev1.Toleration{
 								{
-									Name:    "bash-container",
-									Image:   "bash:latest",
-									Command: []string{"/bin/sh"},
-									Args:    []string{"-c", "while true; do echo hello; sleep 10; done"},
+									Key:      "google.com/tpu",
+									Operator: "Exists",
+									Effect:   "NoSchedule",
 								},
 							},
-							// RestartPolicy: "Never",
+							Containers: []corev1.Container{
+								{
+									Name:            "pathways-proxy",
+									Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/proxy_server:latest",
+									ImagePullPolicy: "Always",
+									SecurityContext: &corev1.SecurityContext{Privileged: &truth},
+									Args:            []string{"--alsologtostderr", "--v=0", "--pathways_ifrt_proxy_server_resource_manager=$(LWS_LEADER_ADDRESS):38677", "--pathways_ifrt_proxy_server_port=38681", "--pathways_tmp_dir_pattern=gs://cloud-pathways-staging/tmp", "--pathways_plaque_network=gcp"},
+									Ports:           []corev1.ContainerPort{{ContainerPort: 38681}, {ContainerPort: 38682}},
+									// Resources: []corev1.ResourceRequirements{
+									// 	{Limits: corev1.ResourceList{{cpu: "24", memory: 100G,},},
+									// 	},
+									// },
+								},
+								{
+									Name:            "pathways-rm",
+									Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/server:latest",
+									ImagePullPolicy: "Always",
+									SecurityContext: &corev1.SecurityContext{Privileged: &truth},
+									Env:             []corev1.EnvVar{{Name: "HOST_ADDRESS", Value: "$(LWS_LEADER_ADDRESS)"}, {Name: "TPU_SKIP_MDS_QUERY", Value: "true"}},
+									Args: []string{"--pathways_server_port=38677",
+										"--pathways_server_provides_devices=false",
+										"--pathways_device_type=NONE",
+										"--pathways_persistent_compilation_cache=false",
+										"--pathways_compilation_mode=compile_at_worker",
+										"--pathways_tmp_dir_pattern=gs://cloud-pathways-staging/tmp",
+										"--pathways_resource_manager_expected_num_worker_jobs=2"},
+									Ports: []corev1.ContainerPort{{ContainerPort: 38677}, {ContainerPort: 38678}},
+									// Resources: []corev1.ResourceRequirements{Limits: {map[corev1.ResourceName]resource.Quantity{cpu: "24", memory: 100G,},},},
+								},
+							},
 						},
 					},
 					WorkerTemplate: corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
-							Name: "workers",
+							Name:   workloadType,
+							Labels: map[string]string{"xpk.google.com/workload": "pathways-headless"},
 						},
 						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{
+							// NodeSelector: map[string]string{"cloud.google.com/gke-tpu-accelerator": "tpu-v5-lite-podslice", "cloud.google.com/gke-tpu-topology": "4x4"},
+							// NodeSelector: map[string]string{"cloud.google.com/gke-tpu-accelerator": "tpu-v4-podslice", "cloud.google.com/gke-tpu-topology": "2x2x1"},
+							Tolerations: []corev1.Toleration{
 								{
-									Name:    "bash-container",
-									Image:   "bash:latest",
-									Command: []string{"/bin/sh"},
-									Args:    []string{"-c", "while true; do echo hello; sleep 10; done"},
+									Key:      "google.com/tpu",
+									Operator: "Exists",
+									Effect:   "NoSchedule",
 								},
 							},
-							// RestartPolicy: "Never",
+							NodeSelector: map[string]string{"cloud.google.com/gke-tpu-accelerator": "tpu-v4-podslice", "cloud.google.com/gke-tpu-topology": "2x2x2"},
+							Containers: []corev1.Container{
+								{
+									Name:            "worker",
+									Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/server:latest",
+									ImagePullPolicy: "Always",
+									SecurityContext: &corev1.SecurityContext{Privileged: &truth},
+									Args: []string{"--alsologtostderr", "--pathways_server_port=38679", "--pathways_resource_manager=$(LWS_LEADER_ADDRESS):38677", "--pathways_persistent_compilation_cache=false", "--pathways_compilation_mode=compile_at_worker",
+										"--xla_tpu_enable_data_parallel_all_reduce_opt=true", "--xla_tpu_data_parallel_opt_different_sized_ops=true", "--xla_tpu_enable_async_collective_fusion=true", "--xla_tpu_enable_async_collective_fusion_fuse_all_gather=true",
+										"--xla_tpu_enable_async_collective_fusion_multiple_steps=true", "--xla_tpu_overlap_compute_collective_tc=true", "--xla_enable_async_all_gather=true", "--pathways_tmp_dir_pattern=gs://cloud-pathways-staging/tmp"},
+									Ports: []corev1.ContainerPort{{ContainerPort: 38679}, {ContainerPort: 38680}, {ContainerPort: 8471}, {ContainerPort: 8080}},
+									// Resources: []corev1.ResourceRequirements{Limits: {map[corev1.ResourceName]resource.Quantity{cpu: "24", memory: 100G,},},},
+								},
+							},
 						},
 					},
-					Size: ptr.To(int32(2)),
 				},
-				StartupPolicy: "LeaderReady",
 			},
 		}, metav1.CreateOptions{})
+
+		// Pathways Spec + LWS ------
+
+		// lws, err := client.LeaderworkersetV1().LeaderWorkerSets("default").Create(ctx, &leaderworkersetv1.LeaderWorkerSet{
+		// 	ObjectMeta: metav1.ObjectMeta{
+		// 		Name: pwMessage,
+		// 	},
+		// 	Spec: leaderworkersetv1.LeaderWorkerSetSpec{
+		// 		Replicas: ptr.To(numSlices),
+		// 		LeaderWorkerTemplate: leaderworkersetv1.LeaderWorkerTemplate{
+		// 			LeaderTemplate: &corev1.PodTemplateSpec{
+		// 				ObjectMeta: metav1.ObjectMeta{
+		// 					Name: workloadType,
+		// 				},
+		// 				Spec: corev1.PodSpec{
+		// 					Containers: []corev1.Container{
+		// 						{
+		// 							Name:    "bash-container",
+		// 							Image:   "bash:latest",
+		// 							Command: []string{"/bin/sh"},
+		// 							Args:    []string{"-c", "while true; do echo hello; sleep 10; done"},
+		// 						},
+		// 					},
+		// 					// RestartPolicy: "Never",
+		// 				},
+		// 			},
+		// 			WorkerTemplate: corev1.PodTemplateSpec{
+		// 				ObjectMeta: metav1.ObjectMeta{
+		// 					Name: "workers",
+		// 				},
+		// 				Spec: corev1.PodSpec{
+		// 					Containers: []corev1.Container{
+		// 						{
+		// 							Name:    "bash-container",
+		// 							Image:   "bash:latest",
+		// 							Command: []string{"/bin/sh"},
+		// 							Args:    []string{"-c", "while true; do echo hello; sleep 10; done"},
+		// 						},
+		// 					},
+		// 					// RestartPolicy: "Never",
+		// 				},
+		// 			},
+		// 			Size: ptr.To(int32(2)),
+		// 		},
+		// 		StartupPolicy: "LeaderReady",
+		// 	},
+		// }, metav1.CreateOptions{})
+
 		if err != nil {
 			panic(err)
 		}
 		log.Info("Roshani, created LeaderWorkerSet...")
 		fmt.Printf("successfully created LeaderWorkerSet: %s\n", lws.Name)
 	} else if workloadType == "training" {
-		// JobSet works ---
-		client := jobsetclient.NewForConfigOrDie(config)
+		//		// Pathways Spec + JobSet ------
+		client := jobsetclient.NewForConfigOrDie(kubeconfig)
 
 		js, err := client.JobsetV1alpha2().JobSets("default").Create(ctx, &jobsetv1alpha2.JobSet{
 			ObjectMeta: metav1.ObjectMeta{
@@ -185,13 +286,6 @@ func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Info("Roshani, created JobSet...")
 		fmt.Printf("successfully created JobSet: %s\n", js.Name)
 	}
-
-	// Also works -
-	// fmt.Printf("successfully created JobSet: %s\n", js.Name)
-	// fmt.Printf("successfully created JobSet: %s\n", js.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.Containers[0].Name)
-	// Scribe for tracking JobSet, reconciliation calls for events
-	// k8 APIs queries.
-
 	return ctrl.Result{}, nil
 }
 
