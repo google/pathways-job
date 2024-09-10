@@ -253,33 +253,252 @@ func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			Spec: jobsetv1alpha2.JobSetSpec{
 				ReplicatedJobs: []jobsetv1alpha2.ReplicatedJob{
 					{
-						Name: "rjob",
+						Name:     "worker",
+						Replicas: 2,
 						Template: batchv1.JobTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
-								Name: "job",
+								Annotations: map[string]string{"alpha.jobset.sigs.k8s.io/exclusive-topology": "cloud.google.com/gke-nodepool"},
 							},
 							Spec: batchv1.JobSpec{
-								Parallelism:  ptr.To(numSlices),
-								Completions:  ptr.To(numSlices),
 								BackoffLimit: ptr.To(int32(0)),
+								Completions:  ptr.To(int32(1)),
+								Parallelism:  ptr.To(int32(1)),
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{
+										TerminationGracePeriodSeconds: ptr.To(int64(30)),
 										Containers: []corev1.Container{
 											{
-												Name:    "bash-container",
-												Image:   "bash:latest",
-												Command: []string{"echo"},
-												Args:    []string{"Hello"},
+												Name:            "pathways-worker",
+												Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/server:latest",
+												ImagePullPolicy: "Always",
+												SecurityContext: &corev1.SecurityContext{Privileged: &truth},
+												Args: []string{
+													"--alsologtostderr",
+													"--pathways_server_port=38677",
+													fmt.Sprintf("--pathways_resource_manager=%s-rm-0-0.%s:38677", pwMessage, pwMessage),
+													"--pathways_persistent_compilation_cache=false",
+													"--pathways_compilation_mode=compile_at_worker",
+													"--xla_tpu_enable_data_parallel_all_reduce_opt=true",
+													"--xla_tpu_data_parallel_opt_different_sized_ops=true",
+													"--xla_tpu_enable_async_collective_fusion=true",
+													"--xla_tpu_enable_async_collective_fusion_fuse_all_gather=true",
+													"--xla_tpu_enable_async_collective_fusion_multiple_steps=true",
+													"--xla_tpu_overlap_compute_collective_tc=true",
+													"--xla_enable_async_all_gather=true",
+													"--pathways_tmp_dir_pattern=gs://cloud-pathways-staging/tmp",
+												},
+												Ports: []corev1.ContainerPort{{ContainerPort: 38677}, {ContainerPort: 8471}, {ContainerPort: 8080}},
+												VolumeMounts: []corev1.VolumeMount{
+													{
+														Name:      "shared-tmp",
+														MountPath: "/tmp",
+													},
+												},
+												// Resources: corev1.ResourceRequirements{
+												// 	Limits: {map[corev1.ResourceName]Res{"google.com/tpu", 4},
+												// },
+												// Resources: corev1.ResourceRequirements{Limits: {map[corev1.ResourceName]{cpu: "24", memory: 100G,},},},
 											},
 										},
+										NodeSelector: map[string]string{"cloud.google.com/gke-tpu-accelerator": "tpu-v5-lite-podslice", "cloud.google.com/gke-tpu-topology": "4x4"},
+										// Volumes: []corev1.Volume{
+										// {Name: "shared-tmp", VolumeSource: corev1.VolumeSource{HostPath: *corev1.HostPathVolumeSource{Path: "/tmp", Type: *corev1.HostPathType("DirectoryOrCreate")}}},
+										// },
+									},
+								},
+							},
+						},
+					},
+					{
+						Name:     "rm",
+						Replicas: 1,
+						Template: batchv1.JobTemplateSpec{
+							Spec: batchv1.JobSpec{
+								BackoffLimit: ptr.To(int32(0)),
+								Completions:  ptr.To(int32(1)),
+								Parallelism:  ptr.To(int32(1)),
+								Template: corev1.PodTemplateSpec{
+									Spec: corev1.PodSpec{
+										// TerminationGracePeriodSeconds: ptr.To(int64(30)),
+										Containers: []corev1.Container{
+											{
+												Name:            "pathways-rm",
+												Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/server:latest",
+												ImagePullPolicy: "Always",
+												SecurityContext: &corev1.SecurityContext{Privileged: &truth},
+												Args: []string{
+													"--alsologtostderr",
+													"--pathways_server_port=38677",
+													"--pathways_server_provides_devices=false",
+													"--pathways_persistent_compilation_cache=false",
+													"--pathways_compilation_mode=compile_at_worker",
+													"--pathways_tmp_dir_pattern=gs://cloud-pathways-staging/tmp",
+													"--pathways_expected_instances=tpuv4:2x2x2,tpuv4:2x2x2",
+												},
+												Env: []corev1.EnvVar{
+													{Name: "REPLICATED_JOB_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/replicatedjob-name']"}}},
+													{Name: "JOBSET_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/jobset-name']"}}},
+													{Name: "HOST_ADDRESS", Value: fmt.Sprintf("%s-%s-0-0.%s", pwMessage, "rm", pwMessage)},
+													{Name: "TPU_SKIP_MDS_QUERY", Value: "true"},
+												},
+												Ports: []corev1.ContainerPort{{ContainerPort: 38677}},
+												VolumeMounts: []corev1.VolumeMount{
+													{
+														Name:      "shared-tmp",
+														MountPath: "/tmp",
+													},
+												},
+												// Resources: corev1.ResourceRequirements{
+												// 	Limits: {map[corev1.ResourceName]{"google.com/tpu", 4},
+												// },
+												// Resources: corev1.ResourceRequirements{Limits: {map[corev1.ResourceName]{cpu: "24", memory: 100G,},},},
+											},
+										},
+										NodeSelector: map[string]string{"cloud.google.com/gke-nodepool": "cpu-rm-np"},
+										// Volumes: []corev1.Volume{
+										// {Name: "shared-tmp", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/tmp", Type: &corev1.HostPathType("DirectoryOrCreate")}}},
+										// },
+									},
+								},
+							},
+						},
+					},
+					{
+						Name:     "proxy",
+						Replicas: 1,
+						Template: batchv1.JobTemplateSpec{
+							Spec: batchv1.JobSpec{
+								BackoffLimit: ptr.To(int32(0)),
+								Completions:  ptr.To(int32(1)),
+								Parallelism:  ptr.To(int32(1)),
+								Template: corev1.PodTemplateSpec{
+									Spec: corev1.PodSpec{
+										// TerminationGracePeriodSeconds: ptr.To(int64(30)),
+										Containers: []corev1.Container{
+											{
+												Name:            "pathways-proxy",
+												Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/proxy_server:latest",
+												ImagePullPolicy: "Always",
+												SecurityContext: &corev1.SecurityContext{Privileged: &truth},
+												Args: []string{
+													"--alsologtostderr",
+													"--v=0",
+													fmt.Sprintf("--pathways_ifrt_proxy_server_resource_manager=%s-%s-0-0.%s:38677", pwMessage, "rm", pwMessage),
+													"--pathways_ifrt_server_port=38676",
+													"--pathways_tmp_dir_pattern=gs://cloud-pathways-staging/tmp",
+													"--pathways_plaque_network=gcp",
+												},
+												Ports: []corev1.ContainerPort{{ContainerPort: 38676}},
+												VolumeMounts: []corev1.VolumeMount{
+													{
+														Name:      "shared-tmp",
+														MountPath: "/tmp",
+													},
+												},
+												// Resources: corev1.ResourceRequirements{
+												// 	Limits: corev1.ResourceList{"google.com/tpu": resource.Quantity{i: 4}},
+												// },
+												// Resources: corev1.ResourceRequirements{Limits: {map[corev1.ResourceName]{cpu: "24", memory: 100G,},},},
+											},
+										},
+										NodeSelector: map[string]string{"cloud.google.com/gke-nodepool": "cpu-proxy-np"},
+										// Volumes: []corev1.Volume{
+										// 	{Name: "shared-tmp", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/tmp", Type: &corev1.HostPathDirectoryOrCreate}}},
+										// },
+									},
+								},
+							},
+						},
+					},
+					{
+						Name:     "main",
+						Replicas: 1,
+						Template: batchv1.JobTemplateSpec{
+							Spec: batchv1.JobSpec{
+								BackoffLimit: ptr.To(int32(0)),
+								Completions:  ptr.To(int32(1)),
+								Parallelism:  ptr.To(int32(1)),
+								Template: corev1.PodTemplateSpec{
+									Spec: corev1.PodSpec{
+										// TerminationGracePeriodSeconds: ptr.To(int64(30)),
+										Containers: []corev1.Container{
+											{
+												Name:            "maxtext",
+												Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/maxtext_jax_stable:latest",
+												ImagePullPolicy: "Always",
+												SecurityContext: &corev1.SecurityContext{Privileged: &truth},
+												Env: []corev1.EnvVar{
+													{Name: "XCLOUD_ENVIRONMENT", Value: "GCP"},
+													{Name: "JAX_PLATFORMS", Value: "proxy"},
+													{Name: "JAX_BACKEND_TARGET", Value: fmt.Sprintf("grpc://%s-%s-0-0.%s:38676", pwMessage, "proxy", pwMessage)},
+													{Name: "JOBSET_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/jobset-name']"}}},
+												},
+												VolumeMounts: []corev1.VolumeMount{
+													{
+														Name:      "shared-tmp",
+														MountPath: "/tmp",
+													},
+												},
+												// Resources: corev1.ResourceRequirements{
+												// 	Limits: corev1.ResourceList{"google.com/tpu": resource.Quantity{i: 4}},
+												// },
+												// Resources: corev1.ResourceRequirements{Limits: {map[corev1.ResourceName]{cpu: "24", memory: 100G,},},},
+											},
+										},
+										NodeSelector: map[string]string{"cloud.google.com/gke-nodepool": "cpu-user-np"},
+										// Volumes: []corev1.Volume{
+										// 	{Name: "shared-tmp", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/tmp", Type: &corev1.HostPathDirectoryOrCreate}}},
+										// },
 									},
 								},
 							},
 						},
 					},
 				},
+				SuccessPolicy: &jobsetv1alpha2.SuccessPolicy{
+					Operator:             "All",
+					TargetReplicatedJobs: []string{"main"},
+				},
+				FailurePolicy: &jobsetv1alpha2.FailurePolicy{
+					MaxRestarts: 0,
+				},
 			},
 		}, metav1.CreateOptions{})
+
+		// js, err := client.JobsetV1alpha2().JobSets("default").Create(ctx, &jobsetv1alpha2.JobSet{
+		// 	ObjectMeta: metav1.ObjectMeta{
+		// 		Name: pwMessage,
+		// 	},
+		// 	Spec: jobsetv1alpha2.JobSetSpec{
+		// 		ReplicatedJobs: []jobsetv1alpha2.ReplicatedJob{
+		// 			{
+		// 				Name: "rjob",
+		// 				Template: batchv1.JobTemplateSpec{
+		// 					ObjectMeta: metav1.ObjectMeta{
+		// 						Name: "job",
+		// 					},
+		// 					Spec: batchv1.JobSpec{
+		// 						Parallelism:  ptr.To(numSlices),
+		// 						Completions:  ptr.To(numSlices),
+		// 						BackoffLimit: ptr.To(int32(0)),
+		// 						Template: corev1.PodTemplateSpec{
+		// 							Spec: corev1.PodSpec{
+		// 								Containers: []corev1.Container{
+		// 									{
+		// 										Name:    "bash-container",
+		// 										Image:   "bash:latest",
+		// 										Command: []string{"echo"},
+		// 										Args:    []string{"Hello"},
+		// 									},
+		// 								},
+		// 							},
+		// 						},
+		// 					},
+		// 				},
+		// 			},
+		// 		},
+		// 	},
+		// }, metav1.CreateOptions{})
 		if err != nil {
 			panic(err)
 		}
