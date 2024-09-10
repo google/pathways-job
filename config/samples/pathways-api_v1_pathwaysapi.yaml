@@ -7,8 +7,9 @@ metadata:
   name: pathwaysapi-sample
 spec:
   # TODO(user): Add fields here
-  workloadName: "roshani-lws-3"
-  tpuType: v4-8
+  workloadName: "roshani-try-lws-16"
+  tpuType: v4-16
   numSlices: 2
   workloadMode: headless
   workloadType: inference
+  # add a container spec, pass as a workload
