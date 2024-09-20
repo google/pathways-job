@@ -17,38 +17,66 @@ limitations under the License.
 package v1
 
 import (
+	corev1 "k8s.io/api/core/v1"
+	// corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// PathwaysAPISpec defines the desired state of PathwaysAPI
+// PathwaysCluster creates a Pathways workload. It sets up the TPU
+// workers needed for training or inference, along with Pathways
+// resources such as the Pathways Resource Manager(RM) and Proxy
+// server at the specifiec controller node location. It provides
+// an option to deploy a user workload and other containers within
+// a Pod. If this pod is not provided, then the workload is assumed
+// to be running in headless mode and the user can connect to Proxy,
+// to run their workloads.
 type PathwaysAPISpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Text message is an example field of PathwaysAPI. Edit pathwaysapi_types.go to remove/update
+	// WorkloadName is the identifier for the Pathways workload deployment.
 	WorkloadName string `json:"workloadName,omitempty"`
-	TpuType      string `json:"tpuType,omitempty"`
-	NumSlices    int32  `json:"numSlices,omitempty"`
-	WorkloadMode string `json:"workloadMode,omitempty"`
-	WorkloadType string `json:"workloadType,omitempty"`
-	// JobSetSpec   jobsetv1alpha2.JobSet `json:"jobSetSpec"`
-}
 
-// tpuType: v4-8
-// numSlices: 12
-// workloadMode: headless
-// backoffLimit: 4 # pass this down to JobSet
-// workloadImage: <AR location of the workload image>
-// workloadName: <Identifier for this workload>
-// workloadType: inference # training or inference
+	// PathwaysWorkerNodeSelector is used to specify the nodeSelector for
+	// Pathways TPU workers (accelerator type and topology).
+	PathwaysWorkerNodeSelector map[string]string `json:"pathwaysWorkerNodeSelector,omitempty"`
+
+	// PathwaysControllerNodeSelector is used to specify where Pathways resources
+	// such as RM and proxy should be deployed.
+	PathwaysControllerNodeSelector map[string]string `json:"pathwaysControllerNodeSelector,omitempty"`
+
+	// Number of TPU slices requested for the Pathways workers.
+	NumSlices int32 `json:"numSlices,omitempty"`
+
+	// PathwaysDir is the GCS location at which Pathways artifacts
+	// can be stored.
+	PathwaysDir string `json:"pathwaysDir,omitempty"`
+
+	// PathwaysClientVersion is the version of the Pathways client.
+	PathwaysClientVersion string `json:"pathwaysClientVersion,omitempty"`
+
+	// UserPodTemplate accepts a pod composed of user's workload
+	// (and other) containers.
+	// https://pkg.go.dev/k8s.io/api/core/v1#PodTemplateSpec
+	// +optional
+	UserPodTemplate *corev1.PodTemplateSpec `json:"template" protobuf:"bytes,6,opt,name=template"`
+}
 
 // PathwaysAPIStatus defines the observed state of PathwaysAPI
 type PathwaysAPIStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// Track the state of the Pathways workload, acceptable values are -
+	// Suspended, Completed, Failed
+	// +optional
+	WorkloadState string `json:"workloadState,omitempty"`
 }
 
 // +kubebuilder:object:root=true

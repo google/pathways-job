@@ -6,10 +6,13 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: pathwaysapi-sample
 spec:
-  # TODO(user): Add fields here
-  workloadName: "roshani-try-lws-16"
-  tpuType: v4-16
-  numSlices: 2
-  workloadMode: headless
-  workloadType: inference
-  # add a container spec, pass as a workload
+  workloadName: "roshani-in-8"
+  pathwaysWorkerNodeSelector:
+    cloud.google.com/gke-tpu-accelerator: tpu-v4-podslice
+    cloud.google.com/gke-tpu-topology: 2x2x2
+  pathwaysControllerNodeSelector:
+    cloud.google.com/gke-tpu-accelerator: tpu-v4-podslice
+    cloud.google.com/gke-tpu-topology: 2x2x2
+  numSlices: 1
+  pathwaysDir: "gs://cloud-pathways-staging/tmp"
+  # add a spec, to pass as a workload
