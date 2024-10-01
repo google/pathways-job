@@ -25,6 +25,27 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+
+// PathwaysAPI is the Schema for the pathwaysapis API
+type PathwaysAPI struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   PathwaysAPISpec   `json:"spec,omitempty"`
+	Status PathwaysAPIStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// PathwaysAPIList contains a list of PathwaysAPI
+type PathwaysAPIList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []PathwaysAPI `json:"items"`
+}
+
 // PathwaysCluster creates a Pathways workload. It sets up the TPU
 // workers needed for training or inference, along with Pathways
 // resources such as the Pathways Resource Manager(RM) and Proxy
@@ -33,6 +54,7 @@ import (
 // a Pod. If this pod is not provided, then the workload is assumed
 // to be running in headless mode and the user can connect to Proxy,
 // to run their workloads.
+
 type PathwaysAPISpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
@@ -47,6 +69,9 @@ type PathwaysAPISpec struct {
 	// PathwaysControllerNodeSelector is used to specify where Pathways resources
 	// such as RM and proxy should be deployed.
 	PathwaysControllerNodeSelector map[string]string `json:"pathwaysControllerNodeSelector,omitempty"`
+
+	// Maximum number of times the JobSet is restarted.
+	MaxRestarts int32 `json:"maxRestarts,omitempty"`
 
 	// Number of TPU slices requested for the Pathways workers.
 	NumSlices int32 `json:"numSlices,omitempty"`
@@ -77,27 +102,6 @@ type PathwaysAPIStatus struct {
 	// Suspended, Completed, Failed
 	// +optional
 	WorkloadState string `json:"workloadState,omitempty"`
-}
-
-// +kubebuilder:object:root=true
-// +kubebuilder:subresource:status
-
-// PathwaysAPI is the Schema for the pathwaysapis API
-type PathwaysAPI struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
-
-	Spec   PathwaysAPISpec   `json:"spec,omitempty"`
-	Status PathwaysAPIStatus `json:"status,omitempty"`
-}
-
-// +kubebuilder:object:root=true
-
-// PathwaysAPIList contains a list of PathwaysAPI
-type PathwaysAPIList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []PathwaysAPI `json:"items"`
 }
 
 func init() {

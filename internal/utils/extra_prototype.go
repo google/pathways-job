@@ -41,3 +41,8 @@ package utils
 // 	},
 // 	Ports: []corev1.ContainerPort{{ContainerPort: 38681}, {ContainerPort: 38682}},
 // }, // end pathways-proxy
+
+// NodeSelector: map[string]string{
+// 	"cloud.google.com/gke-tpu-accelerator": "tpu-v4-podslice",
+// 	"cloud.google.com/gke-tpu-topology":    "2x2x2"},
+// NodeSelector: map[string]string{"cloud.google.com/gke-tpu-accelerator": "tpu-v5-lite-podslice", "cloud.google.com/gke-tpu-topology": "4x4"},
