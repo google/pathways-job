@@ -30,6 +30,23 @@ rules:
   - get
   - patch
   - update
-- apiGroups: ["leaderworkerset.x-k8s.io"]
-  resources: ["leaderworkersets"]
-  verbs: ["create", "update", "delete"]
+- apiGroups: 
+  - "jobset.x-k8s.io"
+  resources: 
+  - jobsets
+  verbs: 
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - jobset.x-k8s.io
+  resources:
+  - jobsets/status
+  verbs:
+  - get
+  - patch
+  - update

@@ -47,6 +47,10 @@ spec:
               to be running in headless mode and the user can connect to Proxy,
               to run their workloads.
             properties:
+              maxRestarts:
+                description: Maximum number of times the JobSet is restarted.
+                format: int32
+                type: integer
               numSlices:
                 description: Number of TPU slices requested for the Pathways workers.
                 format: int32
