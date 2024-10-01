@@ -37,15 +37,6 @@ spec:
           metadata:
             type: object
           spec:
-            description: |-
-              PathwaysCluster creates a Pathways workload. It sets up the TPU
-              workers needed for training or inference, along with Pathways
-              resources such as the Pathways Resource Manager(RM) and Proxy
-              server at the specifiec controller node location. It provides
-              an option to deploy a user workload and other containers within
-              a Pod. If this pod is not provided, then the workload is assumed
-              to be running in headless mode and the user can connect to Proxy,
-              to run their workloads.
             properties:
               maxRestarts:
                 description: Maximum number of times the JobSet is restarted.

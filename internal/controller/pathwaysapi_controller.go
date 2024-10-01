@@ -36,6 +36,7 @@ import (
 	jobsetclient "sigs.k8s.io/jobset/client-go/clientset/versioned"
 
 	pathwaysapi "pathways-api/api/v1"
+	utils "pathways-api/internal/utils"
 )
 
 // PathwaysAPIReconciler reconciles a PathwaysAPI object
@@ -62,24 +63,32 @@ type PathwaysAPIReconciler struct {
 func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	pw := &pathwaysapi.PathwaysAPI{}
 	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysapi", klog.KObj(pw))
+
+	// 1. Fetch the object
 	if err := r.Get(ctx, types.NamespacedName{Name: req.Name, Namespace: req.Namespace}, pw); err != nil {
 		log.Info("Unable to fetch Pathways ")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+
+	// 2. Process the object
+
+	// 3. Update the cluster - create update and delete other resources
 	if err := r.createJobSet(ctx, pw); err != nil {
 		log.Error(err, "Roshani, failed to create JobSet \n")
 		return ctrl.Result{}, err
 	}
+
+	//4. Update the object's status using Conditions
+
+	//5. Return a result
 	return ctrl.Result{}, nil
 }
 
 func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysapi.PathwaysAPI) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysapi", klog.KObj(pw))
-	pwWorkloadName := pw.Spec.WorkloadName
-
 	ctx = ctrl.LoggerInto(ctx, log)
 
-	log.Info("ROSHANI CONTROLLER WORKING...", "WorkloadName ", pwWorkloadName, " NumSlices ", pw.Spec.NumSlices, "WorkerNodeSelector", pw.Spec.PathwaysWorkerNodeSelector)
+	log.Info("ROSHANI CONTROLLER WORKING...", "WorkloadName ", pw.Spec.WorkloadName, " NumSlices ", pw.Spec.NumSlices, "WorkerNodeSelector", pw.Spec.PathwaysWorkerNodeSelector)
 
 	kubeconfig := ctrl.GetConfigOrDie()
 	log.Info("Roshani, config established...")
@@ -87,50 +96,10 @@ func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysap
 	// Some predefined variables
 	truth := true
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
-	replicatedJobName := &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/replicatedjob-name']"}}
-	jobsetName := &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/jobset-name']"}}
 
-	RMContainerSpec := corev1.Container{
-		Name:            "pathways-rm",
-		Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/server:latest",
-		ImagePullPolicy: "Always",
-		SecurityContext: &corev1.SecurityContext{Privileged: &truth},
-		Args: []string{
-			"--alsologtostderr",
-			"--pathways_server_port=38677",
-			"--pathways_server_provides_devices=false",
-			"--pathways_device_type=NONE",
-			"--pathways_persistent_compilation_cache=false",
-			"--pathways_compilation_mode=compile_at_worker",
-			fmt.Sprintf("--pathways_tmp_dir_pattern=%s", pw.Spec.PathwaysDir),
-			"--pathways_expected_instances=tpuv4:2x2x2",
-		},
-		Env: []corev1.EnvVar{
-			{Name: "REPLICATED_JOB_NAME", ValueFrom: replicatedJobName},
-			{Name: "JOBSET_NAME", ValueFrom: jobsetName},
-			{Name: "HOST_ADDRESS", Value: fmt.Sprintf("%s-%s-0-0.%s", pwWorkloadName, "leader", pwWorkloadName)},
-			{Name: "TPU_SKIP_MDS_QUERY", Value: "true"},
-		},
-		Ports:     []corev1.ContainerPort{{ContainerPort: 38677}, {ContainerPort: 38678}},
-		Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(8000000000, resource.DecimalSI)}},
-	}
-
-	ProxyContainerSpec := corev1.Container{
-		Name:            "pathways-proxy",
-		Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/proxy_server:latest",
-		ImagePullPolicy: "Always",
-		SecurityContext: &corev1.SecurityContext{Privileged: &truth},
-		Args: []string{
-			"--alsologtostderr",
-			"--v=0",
-			fmt.Sprintf("--pathways_ifrt_proxy_server_resource_manager=%s-%s-0-0.%s:38677", pwWorkloadName, "leader", pwWorkloadName),
-			"--pathways_ifrt_proxy_server_port=38681",
-			fmt.Sprintf("--pathways_tmp_dir_pattern=%s", pw.Spec.PathwaysDir),
-			"--pathways_plaque_network=gcp",
-		},
-		Ports:     []corev1.ContainerPort{{ContainerPort: 38681}, {ContainerPort: 38682}},
-		Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(10000000000, resource.DecimalSI)}},
-	}
+	RMContainerSpec, _ := utils.MakeResourceManagerContainer(pw)
+	ProxyContainerSpec, _ := utils.MakeProxyContainer(pw)
+	affinitySpec, _ := utils.MakePodAffinityRules(pw)
 
 	//		// Pathways Spec + JobSet for batch inference ------
 	client := jobsetclient.NewForConfigOrDie(kubeconfig)
@@ -138,7 +107,7 @@ func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysap
 
 	mainJobSetConfig := jobsetv1alpha2.JobSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: pwWorkloadName,
+			Name: pw.Spec.WorkloadName,
 		},
 		Spec: jobsetv1alpha2.JobSetSpec{
 			FailurePolicy: &jobsetv1alpha2.FailurePolicy{
@@ -155,45 +124,7 @@ func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysap
 							Parallelism:  ptr.To(int32(1)),
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{
-									// TerminationGracePeriodSeconds: ptr.To(int64(30)),
-									Affinity: &corev1.Affinity{
-										PodAffinity: &corev1.PodAffinity{
-											RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
-												{
-													LabelSelector: &metav1.LabelSelector{
-														MatchExpressions: []metav1.LabelSelectorRequirement{
-															{
-																Key:      "jobset.sigs.k8s.io/jobset-name",
-																Operator: metav1.LabelSelectorOpIn,
-																Values:   []string{pwWorkloadName},
-															},
-														},
-													},
-													TopologyKey: "cloud.google.com/gke-nodepool",
-												},
-											},
-										}, // end PodAffinity
-										PodAntiAffinity: &corev1.PodAntiAffinity{
-											RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
-												{
-													LabelSelector: &metav1.LabelSelector{
-														MatchExpressions: []metav1.LabelSelectorRequirement{
-															{
-																Key:      "jobset.sigs.k8s.io/jobset-name",
-																Operator: metav1.LabelSelectorOpNotIn,
-																Values:   []string{pwWorkloadName},
-															},
-															{
-																Key:      "job-name",
-																Operator: metav1.LabelSelectorOpExists,
-															},
-														},
-													},
-													TopologyKey: "cloud.google.com/gke-nodepool",
-												},
-											},
-										}, // end PodAntiAffinity
-									}, // end Affinity
+									Affinity:     affinitySpec,
 									NodeSelector: pw.Spec.PathwaysControllerNodeSelector,
 									Tolerations: []corev1.Toleration{
 										{
@@ -214,8 +145,8 @@ func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysap
 										},
 									}, // end Volumes
 									Containers: []corev1.Container{
-										RMContainerSpec,
-										ProxyContainerSpec,
+										*RMContainerSpec,
+										*ProxyContainerSpec,
 										{
 											Name:            "jetstream",
 											Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/maxtext_jax_stable:latest", // revert to stable
@@ -224,15 +155,11 @@ func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysap
 											Env: []corev1.EnvVar{
 												{Name: "XCLOUD_ENVIRONMENT", Value: "GCP"},
 												{Name: "JAX_PLATFORMS", Value: "proxy"},
-												{Name: "JAX_BACKEND_TARGET", Value: fmt.Sprintf("grpc://%s-%s-0-0.%s:38681", pwWorkloadName, "leader", pwWorkloadName)},
+												{Name: "JAX_BACKEND_TARGET", Value: fmt.Sprintf("grpc://%s-%s-0-0.%s:38681", pw.Spec.WorkloadName, "leader", pw.Spec.WorkloadName)},
 												{Name: "JOBSET_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/jobset-name']"}}},
 											},
 											Ports:   []corev1.ContainerPort{{ContainerPort: 9000}},
 											Command: []string{"bash", "-c", "echo Start ; (JAX_TRACEBACK_FILTERING=off python3 MaxText/maxengine_server.py MaxText/configs/inference_jetstream.yml tokenizer_path=assets/tokenizer.llama2 load_parameters_path=gs://runner-maxtext-logs/2024-05-07-23-34/unscanned_chkpt/checkpoints/0/items max_prefill_predict_length=1024 max_target_length=2048 async_checkpointing=false model_name='llama2-70b' steps=1 ici_fsdp_parallelism=1 ici_autoregressive_parallelism=-1 ici_tensor_parallelism=1 scan_layers=false weight_dtype=bfloat16 per_device_batch_size=2); echo End; sleep infinity;"},
-											// Resources: corev1.ResourceRequirements{
-											// 	Limits: corev1.ResourceList{"google.com/tpu": resource.Quantity{i: 4}},
-											// },
-											// Resources: corev1.ResourceRequirements{Limits: {map[corev1.ResourceName]{cpu: "24", memory: 100G,},},},
 										}, // end jetstream
 
 										{
@@ -242,7 +169,6 @@ func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysap
 											SecurityContext: &corev1.SecurityContext{Privileged: &truth},
 											Command:         []string{"bash", "-c", "echo Start ;for i in {1..5}; do echo Sending request $i; python3 JetStream/jetstream/tools/requester.py --tokenizer assets/tokenizer.llama2 --max_tokens=16 --server=0.0.0.0 --text=\"why earth is round\"; EXIT_CODE=$?; echo Completed request; echo EXIT_CODE=$EXIT_CODE; if [[ $EXIT_CODE -ne 0 ]]; then break; fi; done; echo Last EXIT_CODE=$EXIT_CODE; echo End; sleep infinity;"},
 										}, // end tester
-
 									}, // end leader []containers
 								}, // end PodSpec
 							},
@@ -253,9 +179,6 @@ func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysap
 					Name:     "worker",
 					Replicas: int32(pw.Spec.NumSlices),
 					Template: batchv1.JobTemplateSpec{
-						// ObjectMeta: metav1.ObjectMeta{
-						// 	Annotations: map[string]string{"alpha.jobset.sigs.k8s.io/exclusive-topology": "cloud.google.com/gke-nodepool"},
-						// },
 						Spec: batchv1.JobSpec{
 							BackoffLimit: ptr.To(int32(0)),
 							Completions:  ptr.To(int32(2)),
@@ -271,7 +194,7 @@ func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysap
 											Args: []string{
 												"--alsologtostderr",
 												"--pathways_server_port=38679",
-												fmt.Sprintf("--pathways_resource_manager=%s-%s-0-0.%s:38677", pwWorkloadName, "leader", pwWorkloadName),
+												fmt.Sprintf("--pathways_resource_manager=%s-%s-0-0.%s:38677", pw.Spec.WorkloadName, "leader", pw.Spec.WorkloadName),
 												"--pathways_persistent_compilation_cache=false",
 												"--pathways_compilation_mode=compile_at_worker",
 												"--xla_tpu_enable_data_parallel_all_reduce_opt=true",
@@ -299,13 +222,6 @@ func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysap
 										}, // end Pathways worker container
 									},
 									NodeSelector: pw.Spec.PathwaysWorkerNodeSelector,
-									// Tolerations: []corev1.Toleration{
-									// 	{
-									// 		Key:      "google.com/tpu",
-									// 		Operator: "Exists",
-									// 		Effect:   "NoSchedule",
-									// 	},
-									// }, //unschedulable without this and resources
 									Volumes: []corev1.Volume{
 										{
 											Name: "shared-tmp",
