@@ -1,4 +1,4 @@
-module pathways-api
+module pathways-job
 
 go 1.22.0
 

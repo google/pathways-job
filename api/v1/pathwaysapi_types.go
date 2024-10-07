@@ -29,22 +29,22 @@ import (
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced
 
-// PathwaysAPI is the Schema for the pathwaysapis API
-type PathwaysAPI struct {
+// PathwaysJob is the Schema for the PathwaysJobs API
+type PathwaysJob struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   PathwaysAPISpec   `json:"spec,omitempty"`
-	Status PathwaysAPIStatus `json:"status,omitempty"`
+	Spec   PathwaysJobSpec   `json:"spec,omitempty"`
+	Status PathwaysJobStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// PathwaysAPIList contains a list of PathwaysAPI
-type PathwaysAPIList struct {
+// PathwaysJobList contains a list of PathwaysJob
+type PathwaysJobList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []PathwaysAPI `json:"items"`
+	Items           []PathwaysJob `json:"items"`
 }
 
 // PathwaysJob creates a Pathways workload. It sets up the TPU
@@ -56,7 +56,7 @@ type PathwaysAPIList struct {
 // to be running in headless mode and the user can connect to Proxy,
 // to run their workloads.
 
-type PathwaysAPISpec struct {
+type PathwaysJobSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
@@ -96,8 +96,8 @@ type PathwaysAPISpec struct {
 	UserPodTemplate *corev1.PodTemplateSpec `json:"template" protobuf:"bytes,6,opt,name=template"`
 }
 
-// PathwaysAPIStatus defines the observed state of PathwaysAPI
-type PathwaysAPIStatus struct {
+// PathwaysJobStatus defines the observed state of PathwaysJob
+type PathwaysJobStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
@@ -117,5 +117,5 @@ const (
 )
 
 func init() {
-	SchemeBuilder.Register(&PathwaysAPI{}, &PathwaysAPIList{})
+	SchemeBuilder.Register(&PathwaysJob{}, &PathwaysJobList{})
 }

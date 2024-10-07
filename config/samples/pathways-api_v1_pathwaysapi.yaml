@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-apiVersion: pathways-api.pathways.domain/v1
-kind: PathwaysAPI
+apiVersion: pathways-job.pathways.domain/v1
+kind: PathwaysJob
 metadata:
   name: pathways-1
 spec:
