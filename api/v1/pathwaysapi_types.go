@@ -27,6 +27,7 @@ import (
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+//+kubebuilder:resource:scope=Namespaced
 
 // PathwaysAPI is the Schema for the pathwaysapis API
 type PathwaysAPI struct {
@@ -46,7 +47,7 @@ type PathwaysAPIList struct {
 	Items           []PathwaysAPI `json:"items"`
 }
 
-// PathwaysCluster creates a Pathways workload. It sets up the TPU
+// PathwaysJob creates a Pathways workload. It sets up the TPU
 // workers needed for training or inference, along with Pathways
 // resources such as the Pathways Resource Manager(RM) and Proxy
 // server at the specifiec controller node location. It provides
@@ -62,6 +63,13 @@ type PathwaysAPISpec struct {
 	// WorkloadName is the identifier for the Pathways workload deployment.
 	WorkloadName string `json:"workloadName,omitempty"`
 
+	// ColocationPolicy defines whether the user job and the Pathways resources (RM, proxy)
+	// must be colocated on TPUs with the Pathways workers or not.
+	// Users may opt for best-effort placement where scheduler places the RM and proxy
+	// on the CPU nodepools by default.
+	// Default is best-effort.
+	ColocationPolicy ColocationPolicy `json:"colocationPolicy,omitempty"`
+
 	// PathwaysWorkerNodeSelector is used to specify the nodeSelector for
 	// Pathways TPU workers (accelerator type and topology).
 	PathwaysWorkerNodeSelector map[string]string `json:"pathwaysWorkerNodeSelector,omitempty"`
@@ -76,12 +84,13 @@ type PathwaysAPISpec struct {
 	// Number of TPU slices requested for the Pathways workers.
 	NumSlices int32 `json:"numSlices,omitempty"`
 
-	// PathwaysDir is the GCS location at which Pathways artifacts
-	// can be stored.
+	// PathwaysDir is a persistent location like GCS at which temporary
+	// Pathways artifacts can be stored like HBM state during interruptions.
+	// Currently, Pathways supports a precreated GCS directory only.
 	PathwaysDir string `json:"pathwaysDir,omitempty"`
 
-	// PathwaysClientVersion is the version of the Pathways client.
-	PathwaysClientVersion string `json:"pathwaysClientVersion,omitempty"`
+	// PathwaysVersion is the version of the Pathways client.
+	PathwaysVersion string `json:"pathwaysVersion,omitempty"`
 
 	// UserPodTemplate accepts a pod composed of user's workload
 	// (and other) containers.
@@ -95,14 +104,20 @@ type PathwaysAPIStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
+	// Track the state of the Pathways workload, acceptable values are -
+	// Running, Suspended, Completed, Failed.
+	// Contains a human readable message to provide additional details to the // user.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-
-	// Track the state of the Pathways workload, acceptable values are -
-	// Suspended, Completed, Failed
-	// +optional
-	WorkloadState string `json:"workloadState,omitempty"`
 }
+
+// +kubebuilder:validation:Enum=colocate;best-effort
+type ColocationPolicy string
+
+const (
+	Colocate   ColocationPolicy = "colocate"
+	BestEffort ColocationPolicy = "best-effort"
+)
 
 func init() {
 	SchemeBuilder.Register(&PathwaysAPI{}, &PathwaysAPIList{})
