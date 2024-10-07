@@ -27,7 +27,7 @@ import (
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-//+kubebuilder:resource:scope=Namespaced
+// +kubebuilder:resource:scope=Namespaced
 
 // PathwaysAPI is the Schema for the pathwaysapis API
 type PathwaysAPI struct {
@@ -59,9 +59,6 @@ type PathwaysAPIList struct {
 type PathwaysAPISpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-
-	// WorkloadName is the identifier for the Pathways workload deployment.
-	WorkloadName string `json:"workloadName,omitempty"`
 
 	// ColocationPolicy defines whether the user job and the Pathways resources (RM, proxy)
 	// must be colocated on TPUs with the Pathways workers or not.

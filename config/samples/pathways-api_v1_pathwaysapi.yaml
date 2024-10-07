@@ -15,9 +15,8 @@
 apiVersion: pathways-api.pathways.domain/v1
 kind: PathwaysAPI
 metadata:
-  name: pathwaysapi-sample
+  name: pathways-1
 spec:
-  workloadName: "roshani-in-27"
   pathwaysWorkerNodeSelector:
     cloud.google.com/gke-tpu-accelerator: tpu-v4-podslice
     cloud.google.com/gke-tpu-topology: 2x2x2

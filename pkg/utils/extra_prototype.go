@@ -61,6 +61,8 @@ package utils
 // 	"cloud.google.com/gke-tpu-topology":    "2x2x2"},
 // NodeSelector: map[string]string{"cloud.google.com/gke-tpu-accelerator": "tpu-v5-lite-podslice", "cloud.google.com/gke-tpu-topology": "4x4"},
 
+//----------------LIST----------------
+
 // List JobSets using client
 
 // jsList, err := jobSetClient.JobsetV1alpha2().JobSets("default").List(ctx, metav1.ListOptions{})
@@ -78,3 +80,45 @@ package utils
 // 		log.Info("Roshani, error listing JobSets: ", "error ", err)
 // 		return ctrl.Result{}, err
 // 	}
+
+//
+// // JobSet list
+// var jsList *jobsetv1alpha2.JobSetList
+
+// jsList, err := jobSetClient.JobsetV1alpha2().JobSets("default").List(ctx, metav1.ListOptions{})
+// if err != nil {
+// 	log.Info("Roshani, can't list JobSets: ", "error ", err)
+// 	return ctrl.Result{}, err
+// } else {
+// 	log.Info("Roshani, can list JobSets")
+// 	for _, job := range jsList.Items {
+// 		for _, condition := range job.Status.Conditions {
+// 			log.Info("Roshani Jobset condtion", job.ObjectMeta.Name, condition.Type)
+// 		}
+// 		if job.ObjectMeta.Name == pw.GetName() &&
+// 			(job.Status.Conditions[0].Type == string(jobsetv1alpha2.JobSetStartupPolicyCompleted) ||
+// 				job.Status.Conditions[0].Type == string(jobsetv1alpha2.JobSetStartupPolicyInProgress)) {
+// 			log.Info("Roshani, found JobSet ", "JobSet name", pw.GetName())
+// 			log.Info("Roshani, nothing to reconcile here")
+// 			return ctrl.Result{}, nil
+// 			// Nothing to reconcile here.
+// 		}
+// 	}
+// }
+
+// Currently leading to race conditions ---.
+// var pwList pathwaysapi.PathwaysAPIList
+// if err := r.List(ctx, &pwList, &client.ListOptions{}); err != nil {
+// 	log.Error(err, "Roshani, failed to list Pathways")
+// 	return ctrl.Result{}, err
+// } else {
+// 	log.Info("Roshani, successfully listed Pathways")
+// 	for _, job := range pwList.Items {
+// 		log.Info("ROSHANI", "Job name ", job.Spec.WorkloadName, "Pathways workload name ", pw.GetName())
+// 		if job.Spec.WorkloadName == pw.GetName() {
+// 			log.Info("Roshani, found Pathways, not creating workload: ", "JobSet name", pw.GetName())
+// 			return ctrl.Result{}, nil
+// 			// Nothing to reconcile here.
+// 		}
+// 	}
+// }
