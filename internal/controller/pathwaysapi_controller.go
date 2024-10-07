@@ -64,10 +64,9 @@ func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysapi", klog.KObj(pw))
 	ctx = ctrl.LoggerInto(ctx, log)
 
-	log.Info("ROSHANI CONTROLLER WORKING...", "WorkloadName ", pw.Spec.WorkloadName, " NumSlices ", pw.Spec.NumSlices, "WorkerNodeSelector", pw.Spec.PathwaysWorkerNodeSelector)
+	log.Info("ROSHANI CONTROLLER WORKING...", "req.NamespacedName", req.NamespacedName.String(), "req.Namespace", req.Namespace)
 
 	// 1. Fetch the Pathways object
-	// if err := r.Get(ctx, types.NamespacedName{Name: req.Name, Namespace: req.Namespace}, pw); err != nil {
 	if err := r.Get(ctx, req.NamespacedName, pw); err != nil {
 		log.Info("Unable to fetch Pathways ")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -83,47 +82,6 @@ func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// 2.1 Figure out if PathwaysJob is already present and in "Suspended / Completed / Failed states",
 	// if it is the case, there is nothing to do.
-
-	// JobSet list
-	var jsList *jobsetv1alpha2.JobSetList
-
-	jsList, err := jobSetClient.JobsetV1alpha2().JobSets("default").List(ctx, metav1.ListOptions{})
-	if err != nil {
-		log.Info("Roshani, can't list JobSets: ", "error ", err)
-		return ctrl.Result{}, err
-	} else {
-		log.Info("Roshani, can list JobSets")
-		for _, job := range jsList.Items {
-			for _, condition := range job.Status.Conditions {
-				log.Info("Roshani Jobset condtion", job.ObjectMeta.Name, condition.Type)
-			}
-			if job.ObjectMeta.Name == pw.Spec.WorkloadName &&
-				(job.Status.Conditions[0].Type == string(jobsetv1alpha2.JobSetStartupPolicyCompleted) ||
-					job.Status.Conditions[0].Type == string(jobsetv1alpha2.JobSetStartupPolicyInProgress)) {
-				log.Info("Roshani, found JobSet ", "JobSet name", pw.Spec.WorkloadName)
-				log.Info("Roshani, nothing to reconcile here")
-				return ctrl.Result{}, nil
-				// Nothing to reconcile here.
-			}
-		}
-	}
-
-	// Currently leading to race conditions ---.
-	// var pwList pathwaysapi.PathwaysAPIList
-	// if err := r.List(ctx, &pwList, &client.ListOptions{}); err != nil {
-	// 	log.Error(err, "Roshani, failed to list Pathways")
-	// 	return ctrl.Result{}, err
-	// } else {
-	// 	log.Info("Roshani, successfully listed Pathways")
-	// 	for _, job := range pwList.Items {
-	// 		log.Info("ROSHANI", "Job name ", job.Spec.WorkloadName, "Pathways workload name ", pw.Spec.WorkloadName)
-	// 		if job.Spec.WorkloadName == pw.Spec.WorkloadName {
-	// 			log.Info("Roshani, found Pathways, not creating workload: ", "JobSet name", pw.Spec.WorkloadName)
-	// 			return ctrl.Result{}, nil
-	// 			// Nothing to reconcile here.
-	// 		}
-	// 	}
-	// }
 
 	// 3. Update the cluster - create update and delete other resources
 	if err := r.createJobSet(ctx, pw, jobSetClient); err != nil {
@@ -167,11 +125,10 @@ func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 // function setPathwaysJobResumedCondition
 
 func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysapi.PathwaysAPI, jobSetClient *jobsetclient.Clientset) error {
-	// log := ctrl.LoggerFrom(ctx)
 	log2 := ctrl.LoggerFrom(ctx).WithValues("pathwaysapi", klog.KObj(pw))
 	ctx = ctrl.LoggerInto(ctx, log2)
 
-	log2.Info("ROSHANI in createJobSet")
+	log2.Info("ROSHANI in createJobSet", "Name ", pw.GetName(), "Namespace ", pw.GetNamespace())
 
 	// Some predefined variables
 	truth := true
@@ -185,7 +142,8 @@ func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysap
 
 	mainJobSetConfig := jobsetv1alpha2.JobSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: pw.Spec.WorkloadName,
+			Name:      pw.GetName(),
+			Namespace: pw.GetNamespace(),
 		},
 		Spec: jobsetv1alpha2.JobSetSpec{
 			FailurePolicy: &jobsetv1alpha2.FailurePolicy{
@@ -233,7 +191,7 @@ func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysap
 											Env: []corev1.EnvVar{
 												{Name: "XCLOUD_ENVIRONMENT", Value: "GCP"},
 												{Name: "JAX_PLATFORMS", Value: "proxy"},
-												{Name: "JAX_BACKEND_TARGET", Value: fmt.Sprintf("grpc://%s-%s-0-0.%s:38681", pw.Spec.WorkloadName, "leader", pw.Spec.WorkloadName)},
+												{Name: "JAX_BACKEND_TARGET", Value: fmt.Sprintf("grpc://%s-%s-0-0.%s:38681", pw.GetName(), "leader", pw.GetName())},
 												{Name: "JOBSET_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/jobset-name']"}}},
 											},
 											Ports:   []corev1.ContainerPort{{ContainerPort: 9000}},
@@ -272,7 +230,7 @@ func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysap
 											Args: []string{
 												"--alsologtostderr",
 												"--pathways_server_port=38679",
-												fmt.Sprintf("--pathways_resource_manager=%s-%s-0-0.%s:38677", pw.Spec.WorkloadName, "leader", pw.Spec.WorkloadName),
+												fmt.Sprintf("--pathways_resource_manager=%s-%s-0-0.%s:38677", pw.GetName(), "leader", pw.GetName()),
 												"--pathways_persistent_compilation_cache=false",
 												"--pathways_compilation_mode=compile_at_worker",
 												"--xla_tpu_enable_data_parallel_all_reduce_opt=true",
@@ -322,16 +280,13 @@ func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysap
 	// var lock sync.Mutex
 
 	// Set Pathways controller as the owner of the JobSet for garbage collection.
-	// if err := ctrl.SetControllerReference(pw, &mainJobSetConfig, r.Scheme); err != nil {
-	// 	// lock.Lock()
-	// 	// defer lock.Unlock()
-	// 	log2.Info("Roshani, failed to set Pathways as owner of JobSet.", "error ", err) // - clearly not working
-	// 	// return err
-	// } else {
-	// 	log2.Info("Roshani, successfully set Pathways as owner of JobSet.")
-	// }
+	if err := ctrl.SetControllerReference(pw, &mainJobSetConfig, r.Scheme); err != nil {
+		log2.Info("Roshani, failed to set Pathways as owner of JobSet.", "error ", err)
+	} else {
+		log2.Info("Roshani, successfully set Pathways as owner of JobSet.")
+	}
 
-	js, err := jobSetClient.JobsetV1alpha2().JobSets("default").Create(ctx, &mainJobSetConfig, metav1.CreateOptions{})
+	js, err := jobSetClient.JobsetV1alpha2().JobSets(pw.GetObjectMeta().GetNamespace()).Create(ctx, &mainJobSetConfig, metav1.CreateOptions{})
 
 	if err != nil {
 		log2.Info("Roshani, failed to create JobSet: ", "JobSet name", js.Name)
@@ -372,7 +327,7 @@ func MakeResourceManagerContainer(pw *pathwaysapi.PathwaysAPI) (*corev1.Containe
 		Env: []corev1.EnvVar{
 			{Name: "REPLICATED_JOB_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/replicatedjob-name']"}}},
 			{Name: "JOBSET_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/jobset-name']"}}},
-			{Name: "HOST_ADDRESS", Value: fmt.Sprintf("%s-%s-0-0.%s", pw.Spec.WorkloadName, "leader", pw.Spec.WorkloadName)},
+			{Name: "HOST_ADDRESS", Value: fmt.Sprintf("%s-%s-0-0.%s", pw.GetName(), "leader", pw.GetName())},
 			{Name: "TPU_SKIP_MDS_QUERY", Value: "true"},
 		},
 		Ports:     []corev1.ContainerPort{{ContainerPort: 38677}, {ContainerPort: 38678}},
@@ -391,7 +346,7 @@ func MakeProxyContainer(pw *pathwaysapi.PathwaysAPI) (*corev1.Container, error) 
 		Args: []string{
 			"--alsologtostderr",
 			"--v=0",
-			fmt.Sprintf("--pathways_ifrt_proxy_server_resource_manager=%s-%s-0-0.%s:38677", pw.Spec.WorkloadName, "leader", pw.Spec.WorkloadName),
+			fmt.Sprintf("--pathways_ifrt_proxy_server_resource_manager=%s-%s-0-0.%s:38677", pw.GetName(), "leader", pw.GetName()),
 			"--pathways_ifrt_proxy_server_port=38681",
 			fmt.Sprintf("--pathways_tmp_dir_pattern=%s", pw.Spec.PathwaysDir),
 			"--pathways_plaque_network=gcp",
@@ -412,7 +367,7 @@ func MakePodAffinityRules(pw *pathwaysapi.PathwaysAPI) (*corev1.Affinity, error)
 							{
 								Key:      "jobset.sigs.k8s.io/jobset-name",
 								Operator: metav1.LabelSelectorOpIn,
-								Values:   []string{pw.Spec.WorkloadName},
+								Values:   []string{pw.GetName()},
 							},
 						},
 					},
@@ -428,7 +383,7 @@ func MakePodAffinityRules(pw *pathwaysapi.PathwaysAPI) (*corev1.Affinity, error)
 							{
 								Key:      "jobset.sigs.k8s.io/jobset-name",
 								Operator: metav1.LabelSelectorOpNotIn,
-								Values:   []string{pw.Spec.WorkloadName},
+								Values:   []string{pw.GetName()},
 							},
 							{
 								Key:      "job-name",

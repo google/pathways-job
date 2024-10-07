@@ -8014,10 +8014,6 @@ spec:
                     - containers
                     type: object
                 type: object
-              workloadName:
-                description: WorkloadName is the identifier for the Pathways workload
-                  deployment.
-                type: string
             type: object
           status:
             description: PathwaysAPIStatus defines the observed state of PathwaysAPI
