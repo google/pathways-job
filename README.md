@@ -1,4 +1,4 @@
-# pathways-api
+# pathways-job
 Pathways API is an OSS Kubernetes-native API, for deploying ML training and inference workloads, using Pathways on GKE.
 
 ## Description
@@ -16,7 +16,7 @@ Pathways API is an OSS Kubernetes-native API, for deploying ML training and infe
 **Build and push your image to the location specified by `IMG`:**
 
 ```sh
-make docker-build docker-push IMG=<some-registry>/pathways-api:tag
+make docker-build docker-push IMG=<some-registry>/pathways-job:tag
 ```
 
 **NOTE:** This image ought to be published in the personal registry you specified.
@@ -32,7 +32,7 @@ make install
 **Deploy the Manager to the cluster with the image specified by `IMG`:**
 
 ```sh
-make deploy IMG=<some-registry>/pathways-api:tag
+make deploy IMG=<some-registry>/pathways-job:tag
 ```
 
 > **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
@@ -73,7 +73,7 @@ Following are the steps to build the installer and distribute this project to us
 1. Build the installer for the image built and published in the registry:
 
 ```sh
-make build-installer IMG=<some-registry>/pathways-api:tag
+make build-installer IMG=<some-registry>/pathways-job:tag
 ```
 
 NOTE: The makefile target mentioned above generates an 'install.yaml'
@@ -86,7 +86,7 @@ its dependencies.
 Users can just run kubectl apply -f <URL for YAML BUNDLE> to install the project, i.e.:
 
 ```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/pathways-api/<tag or branch>/dist/install.yaml
+kubectl apply -f https://raw.githubusercontent.com/<org>/pathways-job/<tag or branch>/dist/install.yaml
 ```
 
 ## Contributing

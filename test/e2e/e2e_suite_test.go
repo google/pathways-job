@@ -27,6 +27,6 @@ import (
 // Run e2e tests using the Ginkgo runner.
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
-	_, _ = fmt.Fprintf(GinkgoWriter, "Starting pathways-api suite\n")
+	_, _ = fmt.Fprintf(GinkgoWriter, "Starting pathways-job suite\n")
 	RunSpecs(t, "e2e suite")
 }

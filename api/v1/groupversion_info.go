@@ -14,9 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1 contains API Schema definitions for the pathways-api v1 API group
+// Package v1 contains API Schema definitions for the pathways-job v1 API group
 // +kubebuilder:object:generate=true
-// +groupName=pathways-api.pathways.domain
+// +groupName=pathways-job.pathways.domain
 package v1
 
 import (
@@ -26,7 +26,7 @@ import (
 
 var (
 	// GroupVersion is group version used to register these objects
-	GroupVersion = schema.GroupVersion{Group: "pathways-api.pathways.domain", Version: "v1"}
+	GroupVersion = schema.GroupVersion{Group: "pathways-job.pathways.domain", Version: "v1"}
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme
 	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}

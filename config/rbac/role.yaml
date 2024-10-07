@@ -19,9 +19,9 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-  - pathways-api.pathways.domain
+  - pathways-job.pathways.domain
   resources:
-  - pathwaysapis
+  - pathwaysjobs
   verbs:
   - create
   - delete
@@ -31,15 +31,15 @@ rules:
   - update
   - watch
 - apiGroups:
-  - pathways-api.pathways.domain
+  - pathways-job.pathways.domain
   resources:
-  - pathwaysapis/finalizers
+  - pathwaysjobs/finalizers
   verbs:
   - update
 - apiGroups:
-  - pathways-api.pathways.domain
+  - pathways-job.pathways.domain
   resources:
-  - pathwaysapis/status
+  - pathwaysjobs/status
   verbs:
   - get
   - patch

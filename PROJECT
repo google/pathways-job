@@ -5,16 +5,16 @@
 domain: pathways.domain
 layout:
 - go.kubebuilder.io/v4
-projectName: pathways-api
-repo: pathways-api
+projectName: pathways-job
+repo: pathways-job
 resources:
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
   domain: pathways.domain
-  group: pathways-api
-  kind: PathwaysAPI
-  path: pathways-api/api/v1
+  group: pathways-job
+  kind: PathwaysJob
+  path: pathways-job/api/v1
   version: v1
 version: "3"

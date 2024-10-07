@@ -34,10 +34,10 @@ import (
 	jobsetv1alpha2 "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	jobsetclient "sigs.k8s.io/jobset/client-go/clientset/versioned"
 
-	pathwaysapi "pathways-api/api/v1"
+	pathwaysjob "pathways-job/api/v1"
 )
 
-// PathwaysAPIReconciler reconciles a PathwaysAPI object
+// PathwaysAPIReconciler reconciles a PathwaysJob object
 type PathwaysAPIReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
@@ -46,7 +46,7 @@ type PathwaysAPIReconciler struct {
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by
-// the PathwaysAPI object against the actual cluster state, and then
+// the PathwaysJob object against the actual cluster state, and then
 // perform operations to make the cluster state reflect the state specified by
 // the user.
 //
@@ -54,14 +54,14 @@ type PathwaysAPIReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.18.4/pkg/reconcile
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
-// +kubebuilder:rbac:groups=pathways-api.pathways.domain,resources=pathwaysapis,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=pathways-api.pathways.domain,resources=pathwaysapis/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=pathways-api.pathways.domain,resources=pathwaysapis/finalizers,verbs=update
+// +kubebuilder:rbac:groups=pathways-job.pathways.domain,resources=pathwaysjobs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=pathways-job.pathways.domain,resources=pathwaysjobs/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=pathways-job.pathways.domain,resources=pathwaysjobs/finalizers,verbs=update
 // +kubebuilder:rbac:groups=jobset.x-k8s.io,resources=jobsets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=jobset.x-k8s.io,resources=jobsets/status,verbs=get;update;patch
 func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	pw := &pathwaysapi.PathwaysAPI{}
-	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysapi", klog.KObj(pw))
+	pw := &pathwaysjob.PathwaysJob{}
+	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
 	ctx = ctrl.LoggerInto(ctx, log)
 
 	log.Info("ROSHANI CONTROLLER WORKING...", "req.NamespacedName", req.NamespacedName.String(), "req.Namespace", req.Namespace)
@@ -87,8 +87,6 @@ func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err := r.createJobSet(ctx, pw, jobSetClient); err != nil {
 		log.Error(err, "Roshani, failed to create JobSet \n")
 		return ctrl.Result{}, err
-	} else {
-		log.Info("Roshani, successfully created JobSet \n")
 	}
 
 	//4. Update the object's status using Conditions
@@ -124,8 +122,8 @@ func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 // function setPathwaysJobResumedCondition
 
-func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysapi.PathwaysAPI, jobSetClient *jobsetclient.Clientset) error {
-	log2 := ctrl.LoggerFrom(ctx).WithValues("pathwaysapi", klog.KObj(pw))
+func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysjob.PathwaysJob, jobSetClient *jobsetclient.Clientset) error {
+	log2 := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
 	ctx = ctrl.LoggerInto(ctx, log2)
 
 	log2.Info("ROSHANI in createJobSet", "Name ", pw.GetName(), "Namespace ", pw.GetNamespace())
@@ -300,14 +298,14 @@ func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysap
 // SetupWithManager sets up the controller with the Manager.
 func (r *PathwaysAPIReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&pathwaysapi.PathwaysAPI{}).
+		For(&pathwaysjob.PathwaysJob{}).
 		// Owns(&jobsetv1alpha2.JobSet{}). // For JobSet
 		Complete(r)
 }
 
 // helpers
 
-func MakeResourceManagerContainer(pw *pathwaysapi.PathwaysAPI) (*corev1.Container, error) {
+func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob) (*corev1.Container, error) {
 	truth := true
 	rmContainerSpec := corev1.Container{
 		Name:            "pathways-rm",
@@ -336,7 +334,7 @@ func MakeResourceManagerContainer(pw *pathwaysapi.PathwaysAPI) (*corev1.Containe
 	return &rmContainerSpec, nil
 }
 
-func MakeProxyContainer(pw *pathwaysapi.PathwaysAPI) (*corev1.Container, error) {
+func MakeProxyContainer(pw *pathwaysjob.PathwaysJob) (*corev1.Container, error) {
 	truth := true
 	proxyContainerSpec := corev1.Container{
 		Name:            "pathways-proxy",
@@ -357,7 +355,7 @@ func MakeProxyContainer(pw *pathwaysapi.PathwaysAPI) (*corev1.Container, error) 
 	return &proxyContainerSpec, nil
 }
 
-func MakePodAffinityRules(pw *pathwaysapi.PathwaysAPI) (*corev1.Affinity, error) {
+func MakePodAffinityRules(pw *pathwaysjob.PathwaysJob) (*corev1.Affinity, error) {
 	affinity := corev1.Affinity{
 		PodAffinity: &corev1.PodAffinity{
 			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{

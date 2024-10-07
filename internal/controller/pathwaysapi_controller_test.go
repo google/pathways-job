@@ -27,10 +27,10 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	pathwaysapiv1 "pathways-api/api/v1"
+	pathwaysjobv1 "pathways-job/api/v1"
 )
 
-var _ = Describe("PathwaysAPI Controller", func() {
+var _ = Describe("PathwaysJob Controller", func() {
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-resource"
 
@@ -40,13 +40,13 @@ var _ = Describe("PathwaysAPI Controller", func() {
 			Name:      resourceName,
 			Namespace: "default", // TODO(user):Modify as needed
 		}
-		pathwaysapi := &pathwaysapiv1.PathwaysAPI{}
+		pathwaysjob := &pathwaysjobv1.PathwaysJob{}
 
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind PathwaysAPI")
-			err := k8sClient.Get(ctx, typeNamespacedName, pathwaysapi)
+			By("creating the custom resource for the Kind PathwaysJob")
+			err := k8sClient.Get(ctx, typeNamespacedName, pathwaysjob)
 			if err != nil && errors.IsNotFound(err) {
-				resource := &pathwaysapiv1.PathwaysAPI{
+				resource := &pathwaysjobv1.PathwaysJob{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: "default",
@@ -59,11 +59,11 @@ var _ = Describe("PathwaysAPI Controller", func() {
 
 		AfterEach(func() {
 			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &pathwaysapiv1.PathwaysAPI{}
+			resource := &pathwaysjobv1.PathwaysJob{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Cleanup the specific resource instance PathwaysAPI")
+			By("Cleanup the specific resource instance PathwaysJob")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 		})
 		It("should successfully reconcile the resource", func() {

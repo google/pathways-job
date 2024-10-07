@@ -17,7 +17,7 @@ kind: Namespace
 metadata:
   labels:
     control-plane: controller-manager
-    app.kubernetes.io/name: pathways-api
+    app.kubernetes.io/name: pathways-job
     app.kubernetes.io/managed-by: kustomize
   name: system
 ---
@@ -28,7 +28,7 @@ metadata:
   namespace: system
   labels:
     control-plane: controller-manager
-    app.kubernetes.io/name: pathways-api
+    app.kubernetes.io/name: pathways-job
     app.kubernetes.io/managed-by: kustomize
 spec:
   selector:
