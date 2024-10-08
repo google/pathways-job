@@ -107,7 +107,7 @@ package utils
 // }
 
 // Currently leading to race conditions ---.
-// var pwList pathwaysjob.PathwaysAPIList
+// var pwList pathwaysjob.PathwaysJobList
 // if err := r.List(ctx, &pwList, &client.ListOptions{}); err != nil {
 // 	log.Error(err, "Roshani, failed to list Pathways")
 // 	return ctrl.Result{}, err
