@@ -37,8 +37,8 @@ import (
 	pathwaysjob "pathways-job/api/v1"
 )
 
-// PathwaysAPIReconciler reconciles a PathwaysJob object
-type PathwaysAPIReconciler struct {
+// PathwaysJobReconciler reconciles a PathwaysJob object
+type PathwaysJobReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
@@ -59,7 +59,7 @@ type PathwaysAPIReconciler struct {
 // +kubebuilder:rbac:groups=pathways-job.pathways.domain,resources=pathwaysjobs/finalizers,verbs=update
 // +kubebuilder:rbac:groups=jobset.x-k8s.io,resources=jobsets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=jobset.x-k8s.io,resources=jobsets/status,verbs=get;update;patch
-func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *PathwaysJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	pw := &pathwaysjob.PathwaysJob{}
 	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
 	ctx = ctrl.LoggerInto(ctx, log)
@@ -122,7 +122,7 @@ func (r *PathwaysAPIReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 // function setPathwaysJobResumedCondition
 
-func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysjob.PathwaysJob, jobSetClient *jobsetclient.Clientset) error {
+func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjob.PathwaysJob, jobSetClient *jobsetclient.Clientset) error {
 	log2 := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
 	ctx = ctrl.LoggerInto(ctx, log2)
 
@@ -296,7 +296,7 @@ func (r *PathwaysAPIReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *PathwaysAPIReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *PathwaysJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&pathwaysjob.PathwaysJob{}).
 		// Owns(&jobsetv1alpha2.JobSet{}). // For JobSet

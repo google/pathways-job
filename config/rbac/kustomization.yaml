@@ -36,6 +36,6 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the Project itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
-- pathwaysapi_editor_role.yaml
-- pathwaysapi_viewer_role.yaml
+- pathwaysjob_editor_role.yaml
+- pathwaysjob_viewer_role.yaml
 
