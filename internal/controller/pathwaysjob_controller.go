@@ -158,8 +158,11 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 							Parallelism:  ptr.To(int32(1)),
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{
-									Affinity:     affinitySpec,
-									NodeSelector: pw.Spec.PathwaysControllerNodeSelector,
+									Affinity: affinitySpec,
+									NodeSelector: map[string]string{
+										"cloud.google.com/gke-tpu-accelerator": pw.Spec.Workers[0].Type,
+										"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
+									},
 									Tolerations: []corev1.Toleration{
 										{
 											Key:      "google.com/tpu",
@@ -211,12 +214,12 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 				}, // end replicated Job
 				{
 					Name:     "worker",
-					Replicas: int32(pw.Spec.NumSlices),
+					Replicas: int32(pw.Spec.Workers[0].NumSlices),
 					Template: batchv1.JobTemplateSpec{
 						Spec: batchv1.JobSpec{
 							BackoffLimit: ptr.To(int32(0)),
-							Completions:  ptr.To(int32(2)),
-							Parallelism:  ptr.To(int32(2)),
+							Completions:  ptr.To(int32(2)), // remember to update
+							Parallelism:  ptr.To(int32(2)), // remember to update
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{
 									Containers: []corev1.Container{
@@ -255,7 +258,10 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 											Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"google.com/tpu": *resource.NewQuantity(4, resource.DecimalSI)}},
 										}, // end Pathways worker container
 									},
-									NodeSelector: pw.Spec.PathwaysWorkerNodeSelector,
+									NodeSelector: map[string]string{
+										"cloud.google.com/gke-tpu-accelerator": pw.Spec.Workers[0].Type,
+										"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
+									},
 									Volumes: []corev1.Volume{
 										{
 											Name: "shared-tmp",

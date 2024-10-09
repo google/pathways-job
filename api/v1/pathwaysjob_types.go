@@ -18,7 +18,6 @@ package v1
 
 import (
 	corev1 "k8s.io/api/core/v1"
-	// corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -60,26 +59,18 @@ type PathwaysJobSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// ColocationPolicy defines whether the user job and the Pathways resources (RM, proxy)
-	// must be colocated on TPUs with the Pathways workers or not.
-	// Users may opt for best-effort placement where scheduler places the RM and proxy
-	// on the CPU nodepools by default.
+	// ColocationPolicy defines whether the user job and the Pathways
+	// resources (RM, proxy) must be colocated on TPUs, with the Pathways
+	// workers or not. If user chooses to "colocate", then the Pathways RM
+	// and proxy run together with the user job as a single pod.
+	// Users may opt for "best-effort" placement where scheduler places the
+	// RM and proxy (as a single pod) on the CPU nodepools by default. User
+	// workload will be deployed separately,as a pod.
 	// Default is best-effort.
 	ColocationPolicy ColocationPolicy `json:"colocationPolicy,omitempty"`
 
-	// PathwaysWorkerNodeSelector is used to specify the nodeSelector for
-	// Pathways TPU workers (accelerator type and topology).
-	PathwaysWorkerNodeSelector map[string]string `json:"pathwaysWorkerNodeSelector,omitempty"`
-
-	// PathwaysControllerNodeSelector is used to specify where Pathways resources
-	// such as RM and proxy should be deployed.
-	PathwaysControllerNodeSelector map[string]string `json:"pathwaysControllerNodeSelector,omitempty"`
-
 	// Maximum number of times the JobSet is restarted.
 	MaxRestarts int32 `json:"maxRestarts,omitempty"`
-
-	// Number of TPU slices requested for the Pathways workers.
-	NumSlices int32 `json:"numSlices,omitempty"`
 
 	// PathwaysDir is a persistent location like GCS at which temporary
 	// Pathways artifacts can be stored like HBM state during interruptions.
@@ -89,11 +80,15 @@ type PathwaysJobSpec struct {
 	// PathwaysVersion is the version of the Pathways client.
 	PathwaysVersion string `json:"pathwaysVersion,omitempty"`
 
+	// The list of worker types created for the Pathways Job. Currently only
+	// one type of worker is supported.
+	Workers []WorkerSpec `json:"workers"`
+
 	// UserPodTemplate accepts a pod composed of user's workload
 	// (and other) containers.
 	// https://pkg.go.dev/k8s.io/api/core/v1#PodTemplateSpec
 	// +optional
-	UserPodTemplate *corev1.PodTemplateSpec `json:"template" protobuf:"bytes,6,opt,name=template"`
+	UserPodTemplate *corev1.PodTemplateSpec `json:"template,omitempty" protobuf:"bytes,6,opt,name=template"`
 }
 
 // PathwaysJobStatus defines the observed state of PathwaysJob
@@ -115,6 +110,21 @@ const (
 	Colocate   ColocationPolicy = "colocate"
 	BestEffort ColocationPolicy = "best-effort"
 )
+
+// The WorkerSpec struct takes in the specifications for the
+// Pathways workers.
+type WorkerSpec struct {
+	// This will translate to a nodeSelector of the form
+	// cloud.google.com/gke-tpu-accelerator: tpu-v5-lite-podslice
+	Type string `json:"type"`
+
+	// This will translate to a nodeSelector of the form
+	// cloud.google.com/gke-tpu-topology:2x2
+	Topology string `json:"topology"`
+
+	// Number of TPU slices requested for the Pathways workers.
+	NumSlices int32 `json:"numSlices"`
+}
 
 func init() {
 	SchemeBuilder.Register(&PathwaysJob{}, &PathwaysJobList{})
