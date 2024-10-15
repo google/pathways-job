@@ -132,11 +132,8 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 	truth := true
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
 
-	RMContainerSpec, _ := MakeResourceManagerContainer(pw)
-	ProxyContainerSpec, _ := MakeProxyContainer(pw)
-	affinitySpec, _ := MakePodAffinityRules(pw)
-
 	//		// Pathways Spec + JobSet for batch inference ------
+	leaderJob, _ := MakeLeaderJob(pw)
 
 	mainJobSetConfig := jobsetv1alpha2.JobSet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -148,70 +145,7 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 				MaxRestarts: 4,
 			},
 			ReplicatedJobs: []jobsetv1alpha2.ReplicatedJob{
-				{
-					Name:     "leader",
-					Replicas: 1,
-					Template: batchv1.JobTemplateSpec{
-						Spec: batchv1.JobSpec{
-							BackoffLimit: ptr.To(int32(0)),
-							Completions:  ptr.To(int32(1)),
-							Parallelism:  ptr.To(int32(1)),
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Affinity: affinitySpec,
-									NodeSelector: map[string]string{
-										"cloud.google.com/gke-tpu-accelerator": pw.Spec.Workers[0].Type,
-										"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
-									},
-									Tolerations: []corev1.Toleration{
-										{
-											Key:      "google.com/tpu",
-											Operator: "Exists",
-											Effect:   "NoSchedule",
-										},
-									},
-									Volumes: []corev1.Volume{
-										{
-											Name: "shared-tmp",
-											VolumeSource: corev1.VolumeSource{
-												HostPath: &corev1.HostPathVolumeSource{
-													Path: "/tmp",
-													Type: &volumeSourceType,
-												},
-											},
-										},
-									}, // end Volumes
-									Containers: []corev1.Container{
-										*RMContainerSpec,
-										*ProxyContainerSpec,
-										{
-											Name:            "jetstream",
-											Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/maxtext_jax_stable:latest", // revert to stable
-											ImagePullPolicy: "Always",
-											SecurityContext: &corev1.SecurityContext{Privileged: &truth},
-											Env: []corev1.EnvVar{
-												{Name: "XCLOUD_ENVIRONMENT", Value: "GCP"},
-												{Name: "JAX_PLATFORMS", Value: "proxy"},
-												{Name: "JAX_BACKEND_TARGET", Value: fmt.Sprintf("grpc://%s-%s-0-0.%s:38681", pw.GetName(), "leader", pw.GetName())},
-												{Name: "JOBSET_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/jobset-name']"}}},
-											},
-											Ports:   []corev1.ContainerPort{{ContainerPort: 9000}},
-											Command: []string{"bash", "-c", "echo Start ; (JAX_TRACEBACK_FILTERING=off python3 MaxText/maxengine_server.py MaxText/configs/inference_jetstream.yml tokenizer_path=assets/tokenizer.llama2 load_parameters_path=gs://runner-maxtext-logs/2024-05-07-23-34/unscanned_chkpt/checkpoints/0/items max_prefill_predict_length=1024 max_target_length=2048 async_checkpointing=false model_name='llama2-70b' steps=1 ici_fsdp_parallelism=1 ici_autoregressive_parallelism=-1 ici_tensor_parallelism=1 scan_layers=false weight_dtype=bfloat16 per_device_batch_size=2); echo End; sleep infinity;"},
-										}, // end jetstream
-
-										{
-											Name:            "tester",
-											Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/maxtext_jax_stable:latest", // revert to stable
-											ImagePullPolicy: "Always",
-											SecurityContext: &corev1.SecurityContext{Privileged: &truth},
-											Command:         []string{"bash", "-c", "echo Start ;for i in {1..5}; do echo Sending request $i; python3 JetStream/jetstream/tools/requester.py --tokenizer assets/tokenizer.llama2 --max_tokens=16 --server=0.0.0.0 --text=\"why earth is round\"; EXIT_CODE=$?; echo Completed request; echo EXIT_CODE=$EXIT_CODE; if [[ $EXIT_CODE -ne 0 ]]; then break; fi; done; echo Last EXIT_CODE=$EXIT_CODE; echo End; sleep infinity;"},
-										}, // end tester
-									}, // end leader []containers
-								}, // end PodSpec
-							},
-						},
-					},
-				}, // end replicated Job
+				*leaderJob,
 				{
 					Name:     "worker",
 					Replicas: int32(pw.Spec.Workers[0].NumSlices),
@@ -263,6 +197,8 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 											},
 										},
 									}, // end Volumes
+									HostNetwork: true,                              // For performance == McJAX
+									DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
 								},
 							},
 						},
@@ -299,7 +235,7 @@ func (r *PathwaysJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// helpers
+// Some Pathways helpers
 
 func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob) (*corev1.Container, error) {
 	truth := true
@@ -321,8 +257,8 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob) (*corev1.Containe
 			{Name: "HOST_ADDRESS", Value: fmt.Sprintf("%s-%s-0-0.%s", pw.GetName(), "leader", pw.GetName())},
 			{Name: "TPU_SKIP_MDS_QUERY", Value: "true"},
 		},
-		Ports:     []corev1.ContainerPort{{ContainerPort: 38677}, {ContainerPort: 38678}},
-		Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(8000000000, resource.DecimalSI)}},
+		Ports: []corev1.ContainerPort{{ContainerPort: 38677}, {ContainerPort: 38678}},
+		// Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(8000000000, resource.DecimalSI)}},
 	}
 	return &rmContainerSpec, nil
 }
@@ -339,8 +275,8 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob) (*corev1.Container, error) 
 			fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:38677", pw.GetName(), "leader", pw.GetName()),
 			fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
 		},
-		Ports:     []corev1.ContainerPort{{ContainerPort: 38681}, {ContainerPort: 38682}},
-		Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(10000000000, resource.DecimalSI)}},
+		Ports: []corev1.ContainerPort{{ContainerPort: 38681}, {ContainerPort: 38682}},
+		// Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(10000000000, resource.DecimalSI)}},
 	}
 	return &proxyContainerSpec, nil
 }
@@ -385,4 +321,61 @@ func MakePodAffinityRules(pw *pathwaysjob.PathwaysJob) (*corev1.Affinity, error)
 		}, // end PodAntiAffinity
 	} // end Affinity
 	return &affinity, nil
+}
+
+func GetUserContainerList(pw *pathwaysjob.PathwaysJob) ([]corev1.Container, error) {
+	containerList := pw.Spec.UserPodTemplate.Spec.Containers
+	return containerList, nil
+}
+
+func MakeLeaderJob(pw *pathwaysjob.PathwaysJob) (*jobsetv1alpha2.ReplicatedJob, error) {
+	// truth := true
+	volumeSourceType := corev1.HostPathDirectoryOrCreate
+	RMContainerSpec, _ := MakeResourceManagerContainer(pw)
+	ProxyContainerSpec, _ := MakeProxyContainer(pw)
+	affinitySpec, _ := MakePodAffinityRules(pw)
+	userContainerList, _ := GetUserContainerList(pw)
+
+	leaderJob := jobsetv1alpha2.ReplicatedJob{
+		Name:     "leader",
+		Replicas: 1,
+		Template: batchv1.JobTemplateSpec{
+			Spec: batchv1.JobSpec{
+				BackoffLimit: ptr.To(int32(0)),
+				Completions:  ptr.To(int32(1)),
+				Parallelism:  ptr.To(int32(1)),
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Affinity: affinitySpec,
+						NodeSelector: map[string]string{
+							"cloud.google.com/gke-tpu-accelerator": pw.Spec.Workers[0].Type,
+							"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
+						},
+						HostNetwork: true,                              // For performance == McJAX
+						DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
+						Tolerations: []corev1.Toleration{
+							{
+								Key:      "google.com/tpu",
+								Operator: "Exists",
+								Effect:   "NoSchedule",
+							},
+						},
+						Volumes: []corev1.Volume{
+							{
+								Name: "shared-tmp",
+								VolumeSource: corev1.VolumeSource{
+									HostPath: &corev1.HostPathVolumeSource{
+										Path: "/tmp",
+										Type: &volumeSourceType,
+									},
+								},
+							},
+						}, // end Volumes
+						Containers: append([]corev1.Container{*RMContainerSpec, *ProxyContainerSpec}, userContainerList...), // end leader []containers
+					}, // end PodSpec
+				},
+			},
+		},
+	} // end replicated Job
+	return &leaderJob, nil
 }

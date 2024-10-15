@@ -14,7 +14,7 @@
 
 package utils
 
-// RM AND PROXY SPEC-
+// ----------------RM AND PROXY SPEC----------------
 
 // {
 // 	Name:            "pathways-rm",
@@ -60,6 +60,30 @@ package utils
 // 	"cloud.google.com/gke-tpu-accelerator": "tpu-v4-podslice",
 // 	"cloud.google.com/gke-tpu-topology":    "2x2x2"},
 // NodeSelector: map[string]string{"cloud.google.com/gke-tpu-accelerator": "tpu-v5-lite-podslice", "cloud.google.com/gke-tpu-topology": "4x4"},
+
+// ----------------jetstream and tester containers----------------
+// {
+// 	Name:            "jetstream",
+// 	Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/maxtext_jax_stable:latest", // revert to stable
+// 	ImagePullPolicy: "Always",
+// 	SecurityContext: &corev1.SecurityContext{Privileged: &truth},
+// 	Env: []corev1.EnvVar{
+// 		{Name: "XCLOUD_ENVIRONMENT", Value: "GCP"},
+// 		{Name: "JAX_PLATFORMS", Value: "proxy"},
+// 		{Name: "JAX_BACKEND_TARGET", Value: fmt.Sprintf("grpc://%s-%s-0-0.%s:38681", pw.GetName(), "leader", pw.GetName())},
+// 		{Name: "JOBSET_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/jobset-name']"}}},
+// 	},
+// 	Ports:   []corev1.ContainerPort{{ContainerPort: 9000}},
+// 	Command: []string{"bash", "-c", "echo Start ; (JAX_TRACEBACK_FILTERING=off python3 MaxText/maxengine_server.py MaxText/configs/inference_jetstream.yml tokenizer_path=assets/tokenizer.llama2 load_parameters_path=gs://runner-maxtext-logs/2024-05-07-23-34/unscanned_chkpt/checkpoints/0/items max_prefill_predict_length=1024 max_target_length=2048 async_checkpointing=false model_name='llama2-70b' steps=1 ici_fsdp_parallelism=1 ici_autoregressive_parallelism=-1 ici_tensor_parallelism=1 scan_layers=false weight_dtype=bfloat16 per_device_batch_size=2); echo End; sleep infinity;"},
+// }, // end jetstream
+
+// {
+// 	Name:            "tester",
+// 	Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/maxtext_jax_stable:latest", // revert to stable
+// 	ImagePullPolicy: "Always",
+// 	SecurityContext: &corev1.SecurityContext{Privileged: &truth},
+// 	Command:         []string{"bash", "-c", "echo Start ;for i in {1..5}; do echo Sending request $i; python3 JetStream/jetstream/tools/requester.py --tokenizer assets/tokenizer.llama2 --max_tokens=16 --server=0.0.0.0 --text=\"why earth is round\"; EXIT_CODE=$?; echo Completed request; echo EXIT_CODE=$EXIT_CODE; if [[ $EXIT_CODE -ne 0 ]]; then break; fi; done; echo Last EXIT_CODE=$EXIT_CODE; echo End; sleep infinity;"},
+// }, // end tester
 
 //----------------LIST----------------
 
