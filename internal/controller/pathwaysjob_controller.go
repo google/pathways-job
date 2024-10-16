@@ -64,30 +64,55 @@ func (r *PathwaysJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
 	ctx = ctrl.LoggerInto(ctx, log)
 
-	log.Info("ROSHANI CONTROLLER WORKING...", "req.NamespacedName", req.NamespacedName.String(), "req.Namespace", req.Namespace)
+	log.Info("PathwaysJob: CONTROLLER WORKING...", "req.NamespacedName", req.NamespacedName.String(), "req.Namespace", req.Namespace)
 
 	// 1. Fetch the Pathways object
 	if err := r.Get(ctx, req.NamespacedName, pw); err != nil {
-		log.Info("Unable to fetch Pathways ")
+		log.Info("PathwaysJob: Unable to fetch Pathways ")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	// 2. Process the object
 
 	kubeconfig := ctrl.GetConfigOrDie()
-	log.Info("Roshani, config established...")
+	// log.Info("PathwaysJob: config established...")
 
 	jobSetClient := jobsetclient.NewForConfigOrDie(kubeconfig)
-	log.Info("Roshani, client built for JobSet...")
+	// log.Info("PathwaysJob: client built for JobSet...")
 
 	// 2.1 Figure out if PathwaysJob is already present and in "Suspended / Completed / Failed states",
 	// if it is the case, there is nothing to do.
 
-	// 3. Update the cluster - create update and delete other resources
-	if err := r.createJobSet(ctx, pw, jobSetClient); err != nil {
-		log.Error(err, "Roshani, failed to create JobSet \n")
+	childJobSets, err := r.listChildJobSets(ctx, pw, jobSetClient)
+	if err != nil {
+		log.Error(err, "PathwaysJob: failed to list JobSets \n")
 		return ctrl.Result{}, err
 	}
+
+	// 2.1.1 List childJobSets
+	for _, jobset := range childJobSets {
+		if jobset.GetName() == pw.GetName() {
+			log.Info("PathwaysJob: JobSet exists, not creating \n\n\n")
+			for _, c := range jobset.Status.Conditions {
+				log.Info("PathwaysJob: Condition is ", "Type", c.Type)
+			}
+		} else {
+			// 3. Update the cluster - create update and delete other resources
+			log.Info("PathwaysJob: creating JobSet \n")
+			if err := r.createJobSet(ctx, pw, jobSetClient); err != nil {
+				log.Error(err, "PathwaysJob: failed to create JobSet \n")
+				return ctrl.Result{}, err
+			}
+		}
+	}
+	// report status
+
+	// // 3. Update the cluster - create update and delete other resources
+	// log.Info("PathwaysJob: creating JobSet \n")
+	// if err := r.createJobSet(ctx, pw, jobSetClient); err != nil {
+	// 	log.Error(err, "PathwaysJob: failed to create JobSet \n")
+	// 	return ctrl.Result{}, err
+	// }
 
 	//4. Update the object's status using Conditions
 
@@ -122,18 +147,33 @@ func (r *PathwaysJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 // function setPathwaysJobResumedCondition
 
+func (r *PathwaysJobReconciler) listChildJobSets(ctx context.Context, pw *pathwaysjob.PathwaysJob, jobSetClient *jobsetclient.Clientset) ([]jobsetv1alpha2.JobSet, error) {
+	log3 := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
+	// ctx = ctrl.LoggerInto(ctx, log3)
+	log3.Info("PathwaysJob: in listChildJobSets", "Name ", pw.GetName(), "Namespace ", pw.GetNamespace())
+
+	var jsList *jobsetv1alpha2.JobSetList
+	jsList, err := jobSetClient.JobsetV1alpha2().JobSets(pw.GetObjectMeta().GetNamespace()).List(ctx, metav1.ListOptions{})
+
+	if err != nil {
+		log3.Info("PathwaysJob: can't list JobSets: ", "error ", err)
+		return nil, err
+	}
+	return jsList.Items, nil
+}
+
 func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjob.PathwaysJob, jobSetClient *jobsetclient.Clientset) error {
 	log2 := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
-	ctx = ctrl.LoggerInto(ctx, log2)
+	// ctx = ctrl.LoggerInto(ctx, log2)
 
-	log2.Info("ROSHANI in createJobSet", "Name ", pw.GetName(), "Namespace ", pw.GetNamespace())
+	log2.Info("PathwaysJob: in createJobSet", "Name ", pw.GetName(), "Namespace ", pw.GetNamespace())
 
 	// Some predefined variables
 	truth := true
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
 
 	//		// Pathways Spec + JobSet for batch inference ------
-	leaderJob, _ := MakeLeaderJob(pw)
+	leaderJob, _ := MakeLeaderJob(ctx, pw)
 
 	mainJobSetConfig := jobsetv1alpha2.JobSet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -211,24 +251,29 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 
 	// Set Pathways controller as the owner of the JobSet for garbage collection.
 	if err := ctrl.SetControllerReference(pw, &mainJobSetConfig, r.Scheme); err != nil {
-		log2.Info("Roshani, failed to set Pathways as owner of JobSet.", "error ", err)
+		log2.Info("PathwaysJob: failed to set Pathways as owner of JobSet.", "error ", err)
 	} else {
-		log2.Info("Roshani, successfully set Pathways as owner of JobSet.")
+		log2.Info("PathwaysJob: successfully set Pathways as owner of JobSet.")
 	}
 
 	js, err := jobSetClient.JobsetV1alpha2().JobSets(pw.GetObjectMeta().GetNamespace()).Create(ctx, &mainJobSetConfig, metav1.CreateOptions{})
 
 	if err != nil {
-		log2.Info("Roshani, failed to create JobSet: ", "JobSet name", js.Name)
+		log2.Info("PathwaysJob: failed to create JobSet: ", "JobSet name", js.Name)
 		return err
 	} else {
-		log2.Info("Roshani, successfully created JobSet: ", "JobSet name", js.Name)
+		log2.Info("PathwaysJob: successfully created JobSet: ", "JobSet name", js.Name)
 	}
 	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *PathwaysJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
+
+	// if err := jobsetv1alpha2.AddToScheme(mgr.GetScheme()); err != nil {
+	// 	return err
+	// }
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&pathwaysjob.PathwaysJob{}).
 		// Owns(&jobsetv1alpha2.JobSet{}). // For JobSet
@@ -328,13 +373,17 @@ func GetUserContainerList(pw *pathwaysjob.PathwaysJob) ([]corev1.Container, erro
 	return containerList, nil
 }
 
-func MakeLeaderJob(pw *pathwaysjob.PathwaysJob) (*jobsetv1alpha2.ReplicatedJob, error) {
+func MakeLeaderJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (*jobsetv1alpha2.ReplicatedJob, error) {
 	// truth := true
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
 	RMContainerSpec, _ := MakeResourceManagerContainer(pw)
 	ProxyContainerSpec, _ := MakeProxyContainer(pw)
 	affinitySpec, _ := MakePodAffinityRules(pw)
-	userContainerList, _ := GetUserContainerList(pw)
+	containerList, _ := GetUserContainerList(pw)
+	containerList = append(containerList, *RMContainerSpec, *ProxyContainerSpec)
+
+	// log3 := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
+	// log3.Info("PathwaysJob:...MakeLeaderJob", "Length of container list is", len(containerList))
 
 	leaderJob := jobsetv1alpha2.ReplicatedJob{
 		Name:     "leader",
@@ -371,7 +420,7 @@ func MakeLeaderJob(pw *pathwaysjob.PathwaysJob) (*jobsetv1alpha2.ReplicatedJob, 
 								},
 							},
 						}, // end Volumes
-						Containers: append([]corev1.Container{*RMContainerSpec, *ProxyContainerSpec}, userContainerList...), // end leader []containers
+						Containers: containerList, // end leader []containers
 					}, // end PodSpec
 				},
 			},

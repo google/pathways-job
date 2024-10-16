@@ -15,7 +15,7 @@
 apiVersion: pathways-job.pathways.domain/v1
 kind: PathwaysJob
 metadata:
-  name: pathways-1
+  name: pathways-trial2
 spec:
   workers:
   - type: tpu-v4-podslice
@@ -49,11 +49,10 @@ spec:
             ici_tensor_parallelism=1 scan_layers=false weight_dtype=bfloat16 per_device_batch_size=2)
             & PID=$!; while kill -0 $PID 2>/dev/null; do sleep 5; done; wait $PID;
             EXIT_CODE=$? echo EXIT_CODE=$EXIT_CODE; echo End sleep: $(date); sleep
-            infinity;'
+            500;'
       - name: tester
         image: us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/maxtext_jax_stable:latest
         imagePullPolicy: Always
-        env: null
         command:
         - bash
         - -c
@@ -63,6 +62,6 @@ spec:
           --max_tokens=16 --server=0.0.0.0 --text="why earth is round"; EXIT_CODE=$?;
           echo Completed request; echo EXIT_CODE=$EXIT_CODE; if [[ $EXIT_CODE -ne
           0 ]]; then break; fi; done; echo Last EXIT_CODE=$EXIT_CODE; echo End sleep:
-          $(date); sleep infinity;'
+          $(date); sleep 500;'
         securityContext:
           privileged: true
