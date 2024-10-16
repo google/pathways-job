@@ -108,7 +108,6 @@ package utils
 //
 // // JobSet list
 // var jsList *jobsetv1alpha2.JobSetList
-
 // jsList, err := jobSetClient.JobsetV1alpha2().JobSets("default").List(ctx, metav1.ListOptions{})
 // if err != nil {
 // 	log.Info("Roshani, can't list JobSets: ", "error ", err)
