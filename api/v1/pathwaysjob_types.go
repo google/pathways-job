@@ -59,16 +59,6 @@ type PathwaysJobSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// ColocationPolicy defines whether the user job and the Pathways
-	// resources (RM, proxy) must be colocated on TPUs, with the Pathways
-	// workers or not. If user chooses to "colocate", then the Pathways RM
-	// and proxy run together with the user job as a single pod.
-	// Users may opt for "best-effort" placement where scheduler places the
-	// RM and proxy (as a single pod) on the CPU nodepools by default. User
-	// workload will be deployed separately,as a pod.
-	// Default is best-effort.
-	ColocationPolicy ColocationPolicy `json:"colocationPolicy,omitempty"`
-
 	// Maximum number of times the JobSet is restarted.
 	MaxRestarts int32 `json:"maxRestarts,omitempty"`
 
@@ -84,11 +74,8 @@ type PathwaysJobSpec struct {
 	// one type of worker is supported.
 	Workers []WorkerSpec `json:"workers"`
 
-	// UserPodTemplate accepts a pod composed of user's workload
-	// (and other) containers.
-	// https://pkg.go.dev/k8s.io/api/core/v1#PodTemplateSpec
-	// +optional
-	UserPodTemplate *corev1.PodTemplateSpec `json:"template,omitempty" protobuf:"bytes,6,opt,name=template"`
+	// Pathways single-controller specifications and user workload.
+	Controller *ControllerSpec `json:"controller"`
 }
 
 // PathwaysJobStatus defines the observed state of PathwaysJob
@@ -103,15 +90,15 @@ type PathwaysJobStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-// +kubebuilder:validation:Enum=colocate;best-effort
-type ColocationPolicy string
+// +kubebuilder:validation:Enum=colocate;default
+type DeploymentMode string
 
 const (
-	Colocate   ColocationPolicy = "colocate"
-	BestEffort ColocationPolicy = "best-effort"
+	Colocate DeploymentMode = "colocate"
+	Default  DeploymentMode = "default"
 )
 
-// The WorkerSpec struct takes in the specifications for the
+// The WorkerSpec struct lists the specifications for the
 // Pathways workers.
 type WorkerSpec struct {
 	// This will translate to a nodeSelector of the form
@@ -124,6 +111,25 @@ type WorkerSpec struct {
 
 	// Number of TPU slices requested for the Pathways workers.
 	NumSlices int32 `json:"numSlices"`
+}
+
+// The ControllerSpec struct lists the specifications for the
+// Pathways controller. User workload can also be provided here.
+type ControllerSpec struct {
+	// DeploymentMode defines whether the user job and the Pathways
+	// resources (RM, proxy) must be colocated on TPUs, with the Pathways
+	// workers or not. If user chooses to "colocate", then the Pathways RM
+	// and proxy run together with the user job as a single pod.
+	// Users may opt for "default" placement where scheduler places the
+	// RM pod and the proxy pod on the CPU nodepools by default. User
+	// workload will be deployed separately, as a pod.
+	DeploymentMode DeploymentMode `json:"deploymentMode,omitempty"`
+
+	// UserPodTemplate accepts a pod composed of user's workload
+	// (and other) containers.
+	// https://pkg.go.dev/k8s.io/api/core/v1#PodTemplateSpec
+	// +optional
+	UserPodTemplate *corev1.PodTemplateSpec `json:"template,omitempty" protobuf:"bytes,6,opt,name=template"`
 }
 
 func init() {

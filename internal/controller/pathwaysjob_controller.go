@@ -72,57 +72,46 @@ func (r *PathwaysJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// 2. Process the object
-
+	// 2. Process the Pathways object and build a JobSet client
 	kubeconfig := ctrl.GetConfigOrDie()
 	// log.Info("PathwaysJob: config established...")
 
 	jobSetClient := jobsetclient.NewForConfigOrDie(kubeconfig)
 	// log.Info("PathwaysJob: client built for JobSet...")
 
-	// 2.1 Figure out if PathwaysJob is already present and in "Suspended / Completed / Failed states",
+	// 2.1 Figure out if PathwaysJob is already present
 	// if it is the case, there is nothing to do.
+	// (ToDo) check states in "Suspended / Completed / Failed states",
 
-	childJobSets, err := r.listChildJobSets(ctx, pw, jobSetClient)
+	childJobSet, err := r.getChildJobSet(ctx, pw, jobSetClient)
 	if err != nil {
-		log.Error(err, "PathwaysJob: failed to list JobSets \n")
+		log.Info("PathwaysJob: can't find JobSet \n")
+		// return ctrl.Result{}, err
+	} else if childJobSet != nil {
+		// Not reaching this part of the code now, but that is good?
+		log.Info("PathwaysJob: JobSet exists, not creating \n\n\n")
+		for _, c := range childJobSet.Status.Conditions {
+			log.Info("PathwaysJob: Condition is ", "Type", c.Type)
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// 3. Update the cluster - create update and delete other resources
+	log.Info("PathwaysJob: creating JobSet \n")
+	if err := r.createJobSet(ctx, pw, jobSetClient); err != nil {
+		log.Error(err, "PathwaysJob: failed to create JobSet \n")
 		return ctrl.Result{}, err
 	}
 
-	// 2.1.1 List childJobSets
-	for _, jobset := range childJobSets {
-		if jobset.GetName() == pw.GetName() {
-			log.Info("PathwaysJob: JobSet exists, not creating \n\n\n")
-			for _, c := range jobset.Status.Conditions {
-				log.Info("PathwaysJob: Condition is ", "Type", c.Type)
-			}
-		} else {
-			// 3. Update the cluster - create update and delete other resources
-			log.Info("PathwaysJob: creating JobSet \n")
-			if err := r.createJobSet(ctx, pw, jobSetClient); err != nil {
-				log.Error(err, "PathwaysJob: failed to create JobSet \n")
-				return ctrl.Result{}, err
-			}
-		}
-	}
-	// report status
-
-	// // 3. Update the cluster - create update and delete other resources
-	// log.Info("PathwaysJob: creating JobSet \n")
-	// if err := r.createJobSet(ctx, pw, jobSetClient); err != nil {
-	// 	log.Error(err, "PathwaysJob: failed to create JobSet \n")
-	// 	return ctrl.Result{}, err
-	// }
-
-	//4. Update the object's status using Conditions
+	//4. Update the object's status using Conditions (?)
 
 	//5. Return a result
+	log.Info("PathwaysJob: DONE DONE DONE!")
 	return ctrl.Result{}, nil
 }
 
 // function to listChildJobSets, based on https://github.com/kubernetes-sigs/jobset/blob/main/client-go/clientset/versioned/typed/jobset/v1alpha2/jobset.go#L44
 
-//
 // function to updatePathwaysJob Status ~~ updateJobSetStatus. Pathways status is same as JobSet Status. This function will mainly update Conditions and Message.
 // similar to https://github.com/kubernetes-sigs/jobset/blob/main/pkg/controllers/jobset_controller.go#L248
 // JobSet conditions - https://github.com/kubernetes-sigs/jobset/blob/main/pkg/controllers/jobset_controller.go#L822
@@ -146,34 +135,42 @@ func (r *PathwaysJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 // function setPathwaysJobSuspendedCondition
 
 // function setPathwaysJobResumedCondition
-
-func (r *PathwaysJobReconciler) listChildJobSets(ctx context.Context, pw *pathwaysjob.PathwaysJob, jobSetClient *jobsetclient.Clientset) ([]jobsetv1alpha2.JobSet, error) {
-	log3 := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
+func (r *PathwaysJobReconciler) getChildJobSet(ctx context.Context, pw *pathwaysjob.PathwaysJob, jobSetClient *jobsetclient.Clientset) (*jobsetv1alpha2.JobSet, error) {
+	log3 := ctrl.LoggerFrom(ctx)
+	// .WithValues("pathwaysjob", klog.KObj(pw))
 	// ctx = ctrl.LoggerInto(ctx, log3)
-	log3.Info("PathwaysJob: in listChildJobSets", "Name ", pw.GetName(), "Namespace ", pw.GetNamespace())
 
-	var jsList *jobsetv1alpha2.JobSetList
-	jsList, err := jobSetClient.JobsetV1alpha2().JobSets(pw.GetObjectMeta().GetNamespace()).List(ctx, metav1.ListOptions{})
+	log3.Info("PathwaysJob: in getChildJobSet", "Name ", pw.GetName(), "Namespace ", pw.GetNamespace())
 
+	var js *jobsetv1alpha2.JobSet
+	js, err := jobSetClient.JobsetV1alpha2().JobSets(pw.GetObjectMeta().GetNamespace()).Get(ctx, pw.GetName(), metav1.GetOptions{})
 	if err != nil {
-		log3.Info("PathwaysJob: can't list JobSets: ", "error ", err)
+		// log3.Info("PathwaysJob: can't get JobSets: ", "error ", err)
 		return nil, err
 	}
-	return jsList.Items, nil
+	return js, nil
 }
 
 func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjob.PathwaysJob, jobSetClient *jobsetclient.Clientset) error {
-	log2 := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
+	log2 := ctrl.LoggerFrom(ctx)
+	// .WithValues("pathwaysjob", klog.KObj(pw))
 	// ctx = ctrl.LoggerInto(ctx, log2)
 
 	log2.Info("PathwaysJob: in createJobSet", "Name ", pw.GetName(), "Namespace ", pw.GetNamespace())
 
-	// Some predefined variables
-	truth := true
-	volumeSourceType := corev1.HostPathDirectoryOrCreate
+	var jobs []jobsetv1alpha2.ReplicatedJob
+	var rmJobName string
 
 	//		// Pathways Spec + JobSet for batch inference ------
-	leaderJob, _ := MakeLeaderJob(ctx, pw)
+	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Colocate {
+		rmJobName = "leader"
+		jobs, _ = MakeLeaderJobForColocatedDeployment(ctx, pw, rmJobName)
+	} else {
+		rmJobName = "rm"
+		jobs, _ = MakeJobsForDefaultDeployment(ctx, pw, rmJobName)
+	}
+
+	workerJob, _ := MakeWorkerJob(ctx, pw, rmJobName)
 
 	mainJobSetConfig := jobsetv1alpha2.JobSet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -184,70 +181,9 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 			FailurePolicy: &jobsetv1alpha2.FailurePolicy{
 				MaxRestarts: 4,
 			},
-			ReplicatedJobs: []jobsetv1alpha2.ReplicatedJob{
-				*leaderJob,
-				{
-					Name:     "worker",
-					Replicas: int32(pw.Spec.Workers[0].NumSlices),
-					Template: batchv1.JobTemplateSpec{
-						Spec: batchv1.JobSpec{
-							BackoffLimit: ptr.To(int32(0)),
-							Completions:  ptr.To(int32(2)), // remember to update
-							Parallelism:  ptr.To(int32(2)), // remember to update
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{
-											Name:            "pathways-worker",
-											Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/server:latest",
-											ImagePullPolicy: "Always",
-											SecurityContext: &corev1.SecurityContext{Privileged: &truth},
-											Args: []string{
-												"--server_port=38679",
-												fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:38677", pw.GetName(), "leader", pw.GetName()),
-												fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
-											},
-											Env: []corev1.EnvVar{
-												{Name: "TPU_MIN_LOG_LEVEL", Value: "0"},
-												{Name: "TF_CPP_MIN_LOG_LEVEL", Value: "0"},
-												{Name: "XCLOUD_ENVIRONMENT", Value: "GCP"},
-											},
-											Ports: []corev1.ContainerPort{{ContainerPort: 38679}, {ContainerPort: 38680}, {ContainerPort: 8471}, {ContainerPort: 8080}},
-											VolumeMounts: []corev1.VolumeMount{
-												{
-													Name:      "shared-tmp",
-													MountPath: "/tmp",
-												},
-											},
-											Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"google.com/tpu": *resource.NewQuantity(4, resource.DecimalSI)}},
-										}, // end Pathways worker container
-									},
-									NodeSelector: map[string]string{
-										"cloud.google.com/gke-tpu-accelerator": pw.Spec.Workers[0].Type,
-										"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
-									},
-									Volumes: []corev1.Volume{
-										{
-											Name: "shared-tmp",
-											VolumeSource: corev1.VolumeSource{
-												HostPath: &corev1.HostPathVolumeSource{
-													Path: "/tmp",
-													Type: &volumeSourceType,
-												},
-											},
-										},
-									}, // end Volumes
-									HostNetwork: true,                              // For performance == McJAX
-									DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
-								},
-							},
-						},
-					},
-				}, // end worker replicated job
-			},
+			ReplicatedJobs: append(jobs, workerJob),
 		},
 	}
-	// var lock sync.Mutex
 
 	// Set Pathways controller as the owner of the JobSet for garbage collection.
 	if err := ctrl.SetControllerReference(pw, &mainJobSetConfig, r.Scheme); err != nil {
@@ -259,7 +195,6 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 	js, err := jobSetClient.JobsetV1alpha2().JobSets(pw.GetObjectMeta().GetNamespace()).Create(ctx, &mainJobSetConfig, metav1.CreateOptions{})
 
 	if err != nil {
-		log2.Info("PathwaysJob: failed to create JobSet: ", "JobSet name", js.Name)
 		return err
 	} else {
 		log2.Info("PathwaysJob: successfully created JobSet: ", "JobSet name", js.Name)
@@ -280,10 +215,11 @@ func (r *PathwaysJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// Some Pathways helpers
+// ---------------------- PATHWAYS HELPERS --------------------------
 
-func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob) (*corev1.Container, error) {
+func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, rmJobName string) (*corev1.Container, error) {
 	truth := true
+
 	rmContainerSpec := corev1.Container{
 		Name:            "pathways-rm",
 		Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/server:latest",
@@ -299,7 +235,7 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob) (*corev1.Containe
 		Env: []corev1.EnvVar{
 			{Name: "REPLICATED_JOB_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/replicatedjob-name']"}}},
 			{Name: "JOBSET_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/jobset-name']"}}},
-			{Name: "HOST_ADDRESS", Value: fmt.Sprintf("%s-%s-0-0.%s", pw.GetName(), "leader", pw.GetName())},
+			{Name: "HOST_ADDRESS", Value: fmt.Sprintf("%s-%s-0-0.%s", pw.GetName(), rmJobName, pw.GetName())},
 			{Name: "TPU_SKIP_MDS_QUERY", Value: "true"},
 		},
 		Ports: []corev1.ContainerPort{{ContainerPort: 38677}, {ContainerPort: 38678}},
@@ -308,8 +244,10 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob) (*corev1.Containe
 	return &rmContainerSpec, nil
 }
 
-func MakeProxyContainer(pw *pathwaysjob.PathwaysJob) (*corev1.Container, error) {
+func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, rmJobName string) (*corev1.Container, error) {
+	// Some predefined variables
 	truth := true
+
 	proxyContainerSpec := corev1.Container{
 		Name:            "pathways-proxy",
 		Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/proxy_server:latest",
@@ -317,7 +255,7 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob) (*corev1.Container, error) 
 		SecurityContext: &corev1.SecurityContext{Privileged: &truth},
 		Args: []string{
 			"--server_port=38681",
-			fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:38677", pw.GetName(), "leader", pw.GetName()),
+			fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:38677", pw.GetName(), rmJobName, pw.GetName()),
 			fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
 		},
 		Ports: []corev1.ContainerPort{{ContainerPort: 38681}, {ContainerPort: 38682}},
@@ -369,15 +307,16 @@ func MakePodAffinityRules(pw *pathwaysjob.PathwaysJob) (*corev1.Affinity, error)
 }
 
 func GetUserContainerList(pw *pathwaysjob.PathwaysJob) ([]corev1.Container, error) {
-	containerList := pw.Spec.UserPodTemplate.Spec.Containers
+	containerList := pw.Spec.Controller.UserPodTemplate.Spec.Containers
 	return containerList, nil
 }
 
-func MakeLeaderJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (*jobsetv1alpha2.ReplicatedJob, error) {
-	// truth := true
+func MakeLeaderJobForColocatedDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName string) ([]jobsetv1alpha2.ReplicatedJob, error) {
+	// Some predefined variables
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
-	RMContainerSpec, _ := MakeResourceManagerContainer(pw)
-	ProxyContainerSpec, _ := MakeProxyContainer(pw)
+
+	RMContainerSpec, _ := MakeResourceManagerContainer(pw, rmJobName)
+	ProxyContainerSpec, _ := MakeProxyContainer(pw, rmJobName)
 	affinitySpec, _ := MakePodAffinityRules(pw)
 	containerList, _ := GetUserContainerList(pw)
 	containerList = append(containerList, *RMContainerSpec, *ProxyContainerSpec)
@@ -386,7 +325,7 @@ func MakeLeaderJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (*jobsetv1a
 	// log3.Info("PathwaysJob:...MakeLeaderJob", "Length of container list is", len(containerList))
 
 	leaderJob := jobsetv1alpha2.ReplicatedJob{
-		Name:     "leader",
+		Name:     rmJobName,
 		Replicas: 1,
 		Template: batchv1.JobTemplateSpec{
 			Spec: batchv1.JobSpec{
@@ -426,5 +365,197 @@ func MakeLeaderJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (*jobsetv1a
 			},
 		},
 	} // end replicated Job
-	return &leaderJob, nil
+	return []jobsetv1alpha2.ReplicatedJob{leaderJob}, nil
+}
+
+func MakeJobsForDefaultDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName string) ([]jobsetv1alpha2.ReplicatedJob, error) {
+	// Some predefined variables
+	volumeSourceType := corev1.HostPathDirectoryOrCreate
+
+	RMContainerSpec, _ := MakeResourceManagerContainer(pw, rmJobName)
+	ProxyContainerSpec, _ := MakeProxyContainer(pw, rmJobName)
+
+	// log3 := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
+	// log3.Info("PathwaysJob:...MakeLeaderJob", "Length of container list is", len(containerList))
+
+	rmJob := jobsetv1alpha2.ReplicatedJob{
+		Name:     "rm",
+		Replicas: 1,
+		Template: batchv1.JobTemplateSpec{
+			Spec: batchv1.JobSpec{
+				BackoffLimit: ptr.To(int32(0)),
+				Completions:  ptr.To(int32(1)),
+				Parallelism:  ptr.To(int32(1)),
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						HostNetwork: true,                              // For performance == McJAX
+						DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
+						Tolerations: []corev1.Toleration{
+							{
+								Key:      "google.com/tpu",
+								Operator: "Exists",
+								Effect:   "NoSchedule",
+							},
+						},
+						Volumes: []corev1.Volume{
+							{
+								Name: "shared-tmp",
+								VolumeSource: corev1.VolumeSource{
+									HostPath: &corev1.HostPathVolumeSource{
+										Path: "/tmp",
+										Type: &volumeSourceType,
+									},
+								},
+							},
+						}, // end Volumes
+						Containers: []corev1.Container{*RMContainerSpec}, // end leader []containers
+					}, // end PodSpec
+				},
+			},
+		},
+	} // end replicated Job
+
+	proxyJob := jobsetv1alpha2.ReplicatedJob{
+		Name:     "proxy",
+		Replicas: 1,
+		Template: batchv1.JobTemplateSpec{
+			Spec: batchv1.JobSpec{
+				BackoffLimit: ptr.To(int32(0)),
+				Completions:  ptr.To(int32(1)),
+				Parallelism:  ptr.To(int32(1)),
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						HostNetwork: true,                              // For performance == McJAX
+						DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
+						Tolerations: []corev1.Toleration{
+							{
+								Key:      "google.com/tpu",
+								Operator: "Exists",
+								Effect:   "NoSchedule",
+							},
+						},
+						Volumes: []corev1.Volume{
+							{
+								Name: "shared-tmp",
+								VolumeSource: corev1.VolumeSource{
+									HostPath: &corev1.HostPathVolumeSource{
+										Path: "/tmp",
+										Type: &volumeSourceType,
+									},
+								},
+							},
+						}, // end Volumes
+						Containers: []corev1.Container{*ProxyContainerSpec}, // end leader []containers
+					}, // end PodSpec
+				},
+			},
+		},
+	} // end replicated Job
+
+	userJob := jobsetv1alpha2.ReplicatedJob{
+		Name:     "user-job",
+		Replicas: 1,
+		Template: batchv1.JobTemplateSpec{
+			Spec: batchv1.JobSpec{
+				BackoffLimit: ptr.To(int32(0)),
+				Completions:  ptr.To(int32(1)),
+				Parallelism:  ptr.To(int32(1)),
+				Template: corev1.PodTemplateSpec{
+					Spec: pw.Spec.Controller.UserPodTemplate.Spec,
+					// 	corev1.PodSpec{
+					// 	HostNetwork: true,                              // For performance == McJAX
+					// 	DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
+					// 	Tolerations: []corev1.Toleration{
+					// 		{
+					// 			Key:      "google.com/tpu",
+					// 			Operator: "Exists",
+					// 			Effect:   "NoSchedule",
+					// 		},
+					// 	},
+					// 	Volumes: []corev1.Volume{
+					// 		{
+					// 			Name: "shared-tmp",
+					// 			VolumeSource: corev1.VolumeSource{
+					// 				HostPath: &corev1.HostPathVolumeSource{
+					// 					Path: "/tmp",
+					// 					Type: &volumeSourceType,
+					// 				},
+					// 			},
+					// 		},
+					// 	}, // end Volumes
+					// 	Containers: []corev1.Container{*RMContainerSpec}, // end leader []containers
+					// }, // end PodSpec
+				},
+			},
+		},
+	} // end replicated Job
+
+	return []jobsetv1alpha2.ReplicatedJob{rmJob, proxyJob, userJob}, nil
+}
+
+// Constructs JobSet's replicated job for the Pathways worker
+func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName string) (jobsetv1alpha2.ReplicatedJob, error) {
+	// Some predefined variables
+	truth := true
+	volumeSourceType := corev1.HostPathDirectoryOrCreate
+
+	workerJob := jobsetv1alpha2.ReplicatedJob{
+		Name:     "worker",
+		Replicas: int32(pw.Spec.Workers[0].NumSlices),
+		Template: batchv1.JobTemplateSpec{
+			Spec: batchv1.JobSpec{
+				BackoffLimit: ptr.To(int32(0)),
+				Completions:  ptr.To(int32(2)), // remember to update
+				Parallelism:  ptr.To(int32(2)), // remember to update
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:            "pathways-worker",
+								Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/server:latest",
+								ImagePullPolicy: "Always",
+								SecurityContext: &corev1.SecurityContext{Privileged: &truth},
+								Args: []string{
+									"--server_port=38679",
+									fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:38677", pw.GetName(), rmJobName, pw.GetName()),
+									fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
+								},
+								Env: []corev1.EnvVar{
+									{Name: "TPU_MIN_LOG_LEVEL", Value: "0"},
+									{Name: "TF_CPP_MIN_LOG_LEVEL", Value: "0"},
+									{Name: "XCLOUD_ENVIRONMENT", Value: "GCP"},
+								},
+								Ports: []corev1.ContainerPort{{ContainerPort: 38679}, {ContainerPort: 38680}, {ContainerPort: 8471}, {ContainerPort: 8080}},
+								VolumeMounts: []corev1.VolumeMount{
+									{
+										Name:      "shared-tmp",
+										MountPath: "/tmp",
+									},
+								},
+								Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"google.com/tpu": *resource.NewQuantity(4, resource.DecimalSI)}},
+							}, // end Pathways worker container
+						},
+						NodeSelector: map[string]string{
+							"cloud.google.com/gke-tpu-accelerator": pw.Spec.Workers[0].Type,
+							"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
+						},
+						Volumes: []corev1.Volume{
+							{
+								Name: "shared-tmp",
+								VolumeSource: corev1.VolumeSource{
+									HostPath: &corev1.HostPathVolumeSource{
+										Path: "/tmp",
+										Type: &volumeSourceType,
+									},
+								},
+							},
+						}, // end Volumes
+						HostNetwork: true,                              // For performance == McJAX
+						DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
+					},
+				},
+			},
+		},
+	} // end worker replicated job
+	return workerJob, nil
 }
