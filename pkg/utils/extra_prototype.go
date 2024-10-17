@@ -145,3 +145,44 @@ package utils
 // 		}
 // 	}
 // }
+
+// --------LIST childJobSets --------------
+// func (r *PathwaysJobReconciler) listChildJobSets(ctx context.Context, pw *pathwaysjob.PathwaysJob, jobSetClient *jobsetclient.Clientset) ([]jobsetv1alpha2.JobSet, error) {
+// 	log3 := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
+// 	// ctx = ctrl.LoggerInto(ctx, log3)
+// 	log3.Info("PathwaysJob: in listChildJobSets", "Name ", pw.GetName(), "Namespace ", pw.GetNamespace())
+
+// 	var jsList *jobsetv1alpha2.JobSetList
+// 	jsList, err := jobSetClient.JobsetV1alpha2().JobSets(pw.GetObjectMeta().GetNamespace()).List(ctx, metav1.ListOptions{})
+
+// 	if err != nil {
+// 		log3.Info("PathwaysJob: can't list JobSets: ", "error ", err)
+// 		return nil, err
+// 	}
+// 	return jsList.Items, nil
+// }
+
+// report status
+
+// // 3. Update the cluster - create update and delete other resources
+// log.Info("PathwaysJob: creating JobSet \n")
+// if err := r.createJobSet(ctx, pw, jobSetClient); err != nil {
+// 	log.Error(err, "PathwaysJob: failed to create JobSet \n")
+// 	return ctrl.Result{}, err
+// }
+
+// childJobSets, err := r.listChildJobSets(ctx, pw, jobSetClient)
+// if err != nil {
+// 	log.Error(err, "PathwaysJob: failed to list JobSets \n")
+// 	return ctrl.Result{}, err
+// }
+
+// // 2.1.1 List childJobSets
+// for _, jobset := range childJobSets {
+// 	if jobset.GetName() == pw.GetName() {
+// 		log.Info("PathwaysJob: JobSet exists, not creating \n\n\n")
+// 		for _, c := range jobset.Status.Conditions {
+// 			log.Info("PathwaysJob: Condition is ", "Type", c.Type)
+// 		}
+// 	}
+// }
