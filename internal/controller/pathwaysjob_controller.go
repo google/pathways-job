@@ -85,25 +85,25 @@ func (r *PathwaysJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	childJobSet, err := r.getChildJobSet(ctx, pw, jobSetClient)
 	if err != nil {
-		log.Info("PathwaysJob: can't find JobSet \n")
+		log.Info("PathwaysJob: can't find JobSet")
 		// return ctrl.Result{}, err
 	} else if childJobSet != nil {
-		// Not reaching this part of the code now, but that is good?
-		log.Info("PathwaysJob: JobSet exists, not creating \n\n\n")
-		for _, c := range childJobSet.Status.Conditions {
-			log.Info("PathwaysJob: Condition is ", "Type", c.Type)
-		}
+		log.Info("PathwaysJob: JobSet exists, not creating")
+		// 2.2 Find out JobSet's status
+		r.findJobSetStatus(ctx, childJobSet)
 		return ctrl.Result{}, nil
 	}
 
 	// 3. Update the cluster - create update and delete other resources
 	log.Info("PathwaysJob: creating JobSet \n")
 	if err := r.createJobSet(ctx, pw, jobSetClient); err != nil {
-		log.Error(err, "PathwaysJob: failed to create JobSet \n")
+		log.Error(err, "PathwaysJob: failed to create JobSet")
 		return ctrl.Result{}, err
 	}
 
 	//4. Update the object's status using Conditions (?)
+	// childJobSet, _ = r.getChildJobSet(ctx, pw, jobSetClient)
+	// r.findJobSetStatus(ctx, childJobSet)
 
 	//5. Return a result
 	log.Info("PathwaysJob: DONE DONE DONE!")
@@ -158,10 +158,12 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 
 	log2.Info("PathwaysJob: in createJobSet", "Name ", pw.GetName(), "Namespace ", pw.GetNamespace())
 
+	// truth := true
+
 	var jobs []jobsetv1alpha2.ReplicatedJob
 	var rmJobName string
 
-	//		// Pathways Spec + JobSet for batch inference ------
+	//		// Pathways Spec + JobSet for training or batch inference ------
 	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Colocate {
 		rmJobName = "leader"
 		jobs, _ = MakeLeaderJobForColocatedDeployment(ctx, pw, rmJobName)
@@ -179,9 +181,11 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 		},
 		Spec: jobsetv1alpha2.JobSetSpec{
 			FailurePolicy: &jobsetv1alpha2.FailurePolicy{
-				MaxRestarts: 4,
+				MaxRestarts: pw.Spec.MaxRestarts,
 			},
+			SuccessPolicy:  &jobsetv1alpha2.SuccessPolicy{Operator: jobsetv1alpha2.OperatorAny, TargetReplicatedJobs: []string{rmJobName}}, // change this when needed
 			ReplicatedJobs: append(jobs, workerJob),
+			// Suspend:        &truth,
 		},
 	}
 
@@ -205,14 +209,45 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 // SetupWithManager sets up the controller with the Manager.
 func (r *PathwaysJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
-	// if err := jobsetv1alpha2.AddToScheme(mgr.GetScheme()); err != nil {
-	// 	return err
-	// }
+	if err := jobsetv1alpha2.AddToScheme(mgr.GetScheme()); err != nil {
+		return err
+	}
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&pathwaysjob.PathwaysJob{}).
-		// Owns(&jobsetv1alpha2.JobSet{}). // For JobSet
+		Owns(&jobsetv1alpha2.JobSet{}). // For JobSet
 		Complete(r)
+}
+
+func (r *PathwaysJobReconciler) findJobSetStatus(ctx context.Context, js *jobsetv1alpha2.JobSet) {
+	// (bool, jobsetv1alpha2.JobSetConditionType)
+	log := ctrl.LoggerFrom(ctx)
+	log.Info("PathwaysJob findJobSetStatus", "Jobset name", js.ObjectMeta.Name)
+
+	for _, c := range js.Status.Conditions {
+		log.Info("\n\n PathwaysJob CONDITION", "CONDITION", c.Type, "Status", c.Status, "Message", c.Message)
+		if (c.Type == string(jobsetv1alpha2.JobSetSuspended) || c.Type == string(jobsetv1alpha2.JobSetCompleted) || c.Type == string(jobsetv1alpha2.JobSetFailed)) && c.Status == metav1.ConditionTrue {
+			log.Info("\n\n PathwaysJob: JobSet in TERMINAL STATE", "Condition ", c.Type)
+		}
+		if (c.Type == string(jobsetv1alpha2.JobSetStartupPolicyCompleted) ||
+			c.Type == string(jobsetv1alpha2.JobSetStartupPolicyInProgress)) && c.Status == metav1.ConditionTrue {
+			log.Info("\n\n PathwaysJob: JobSet in TERMINAL STATE", "Condition ", c.Type)
+		}
+	}
+
+	// for _, condition := range js.Status.Conditions {
+	// 	log.Info("PathwaysJob findJobSetStatus Jobset ", "condition ", condition.Type)
+	// 	if condition.Type == string(jobsetv1alpha2.JobSetStartupPolicyCompleted) ||
+	// 		condition.Type == string(jobsetv1alpha2.JobSetStartupPolicyInProgress) {
+	// 		// && c.Status == corev1.ConditionTrue
+	// 		// return true, condition.Type
+	// 	}
+	// }
+	// return false, ""
+	for _, status := range js.Status.ReplicatedJobsStatus {
+		log.Info("PathwaysJob RJ status ", "Name ", status.Name, "Ready ", status.Ready, "Succeeded ", status.Succeeded, "Failed ", status.Failed, "Active ", status.Active, "Suspended ", status.Suspended)
+	}
+
 }
 
 // ---------------------- PATHWAYS HELPERS --------------------------

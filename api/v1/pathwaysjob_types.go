@@ -83,11 +83,26 @@ type PathwaysJobStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Track the state of the Pathways workload, acceptable values are -
-	// Running, Suspended, Completed, Failed.
-	// Contains a human readable message to provide additional details to the // user.
+	// Aggregate  of the PathwaysJob workload, based on worker and
+	// controller statuses.
+	// One of - Pending, Running, Suspended, Completed, Failed.
+	// Contains a human readable message to provide additional details to the
+	// user. Conditions are mentioned below in more detail.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// Track the  of the Pathways TPU workers -
+	// derived from Worker replicatedJob
+	WorkerStatus *PathwaysComponentStatus `json:"workerStatus,omitempty"`
+
+	// Tracks the  of the Pathways controller -
+	// 1. derived from "leader" replicatedJob in colocated mode
+	// (leader job contains "rm", "proxy" and "user" as containers)
+	// 2. derived from "rm" and "proxy" replicatedJobs in
+	// default + headless mode.
+	// 3. derived from "rm", "proxy" and "user-job" replicatedJobs in
+	// default + container mode.
+	ControllerStatus *PathwaysComponentStatus `json:"controllerStatus,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=colocate;default
@@ -130,6 +145,36 @@ type ControllerSpec struct {
 	// https://pkg.go.dev/k8s.io/api/core/v1#PodTemplateSpec
 	// +optional
 	UserPodTemplate *corev1.PodTemplateSpec `json:"template,omitempty" protobuf:"bytes,6,opt,name=template"`
+}
+type PathwaysConditionType string
+
+// These are built-in conditions for PathwaysJob.
+const (
+	// PathwaysJobPending means the underlying JobSet may be deployed, but
+	// pods are yet to be scheduled on nodes.
+	PathwaysJobPending PathwaysConditionType = "Pending"
+	// PathwaysJobRunning means the underlying JobSet has been scheduled and
+	// is in progress.
+	PathwaysJobRunning PathwaysConditionType = "Running"
+	// PathwaysJobCompleted means the underlying JobSet has completed its
+	// execution.
+	PathwaysJobCompleted PathwaysConditionType = "Completed"
+	// PathwaysJobFailed means the JobSet has failed its execution.
+	// Reason for failure may be found in Condition.Message
+	PathwaysJobFailed PathwaysConditionType = "Failed"
+	// PathwaysJobSuspended means the underlying Jobset is suspended.
+	PathwaysJobSuspended PathwaysConditionType = "Suspended"
+)
+
+type PathwaysComponentStatus struct {
+	//  of the Pathways Component ~~ (Worker or Controller
+	// replicatedJobs)
+	// Pending - one of more jobs ready but not active.
+	// Running - all jobs active.
+	// Suspended - all jobs suspended.
+	// Completed - all jobs completed successfully.
+	// Failed - one or more jobs failed.
+	CurrentStatus string `json:"currentStatus,omitempty"`
 }
 
 func init() {
