@@ -8104,9 +8104,11 @@ spec:
             properties:
               conditions:
                 description: |-
-                  Track the state of the Pathways workload, acceptable values are -
-                  Running, Suspended, Completed, Failed.
-                  Contains a human readable message to provide additional details to the // user.
+                  Aggregate  of the PathwaysJob workload, based on worker and
+                  controller statuses.
+                  One of - Pending, Running, Suspended, Completed, Failed.
+                  Contains a human readable message to provide additional details to the
+                  user. Conditions are mentioned below in more detail.
                 items:
                   description: "Condition contains details for one aspect of the current
                     state of this API Resource.\n---\nThis struct is intended for
@@ -8175,6 +8177,43 @@ spec:
                   - type
                   type: object
                 type: array
+              controllerStatus:
+                description: |-
+                  Tracks the  of the Pathways controller -
+                  1. derived from "leader" replicatedJob in colocated mode
+                  (leader job contains "rm", "proxy" and "user" as containers)
+                  2. derived from "rm" and "proxy" replicatedJobs in
+                  default + headless mode.
+                  3. derived from "rm", "proxy" and "user-job" replicatedJobs in
+                  default + container mode.
+                properties:
+                  currentStatus:
+                    description: |2-
+                       of the Pathways Component ~~ (Worker or Controller
+                      replicatedJobs)
+                      Pending - one of more jobs ready but not active.
+                      Running - all jobs active.
+                      Suspended - all jobs suspended.
+                      Completed - all jobs completed successfully.
+                      Failed - one or more jobs failed.
+                    type: string
+                type: object
+              workerStatus:
+                description: |-
+                  Track the  of the Pathways TPU workers -
+                  derived from Worker replicatedJob
+                properties:
+                  currentStatus:
+                    description: |2-
+                       of the Pathways Component ~~ (Worker or Controller
+                      replicatedJobs)
+                      Pending - one of more jobs ready but not active.
+                      Running - all jobs active.
+                      Suspended - all jobs suspended.
+                      Completed - all jobs completed successfully.
+                      Failed - one or more jobs failed.
+                    type: string
+                type: object
             type: object
         type: object
     served: true
