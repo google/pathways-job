@@ -102,8 +102,8 @@ func (r *PathwaysJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	//4. Update the object's status using Conditions (?)
-	// childJobSet, _ = r.getChildJobSet(ctx, pw, jobSetClient)
-	// r.findJobSetStatus(ctx, childJobSet)
+	childJobSet, _ = r.getChildJobSet(ctx, pw, jobSetClient)
+	r.findJobSetStatus(ctx, childJobSet)
 
 	//5. Return a result
 	log.Info("PathwaysJob: DONE DONE DONE!")
@@ -249,6 +249,53 @@ func (r *PathwaysJobReconciler) findJobSetStatus(ctx context.Context, js *jobset
 	}
 
 }
+
+// func calculatePathwaysComponentStatus(ctx context.Context, rjs *jobsetv1alpha2.ReplicatedJobStatus, totalJobs int32) (string, error) {
+// 	// From the replicated Job Status struct, determine if this component is in one of
+// 	// Pending - one of more jobs ready but not active.
+// 	// Running - all jobs active.
+// 	// Suspended - one or more jobs suspended.
+// 	// Completed - all jobs succeeded.
+// 	// Failed - one or more jobs failed.
+// 	var currentStatus string
+// 	if rjs.Failed > 0 {
+// 		currentStatus = "Failed"
+// 	} else if rjs.Succeeded > 0 {
+// 		currentStatus = "Suspended"
+// 	} else if rjs.Ready > 0 {
+// 		currentStatus = "Pending"
+// 	} else if rjs.Active == totalJobs {
+// 		currentStatus = "Running"
+// 	} else if rjs.Succeeded == totalJobs {
+// 		currentStatus = "Completed"
+// 	}
+
+// 	return currentStatus, nil
+// }
+
+// func updatePathwaysWorkerStatus(ctx context.Context, pw *pathwaysjob.PathwaysJob) error {
+// 	// find worker replicated job, find parallelisms in worker replicated Job for the job count ,
+// 	// call calculatePathwaysComponentStatus
+// 	// update status
+// }
+
+// func updatePathwaysControllerStatus(ctx context.Context, pw *pathwaysjob.PathwaysJob) error {
+// 	// for colocate mode -
+// 	// find leader replicated job
+// 	// call calculatePathwaysComponentStatus
+// 	// update status
+
+// 	// for deafult + headless mode -
+// 	// find rm and proxy replicated jobs
+// 	// call calculatePathwaysComponentStatus
+// 	// update status, combining both statuses
+
+// 	// for deafult + container mode -
+// 	// find rm and proxy replicated jobs
+// 	// call calculatePathwaysComponentStatus
+// 	// update status, combining three statuses
+
+// }
 
 // ---------------------- PATHWAYS HELPERS --------------------------
 

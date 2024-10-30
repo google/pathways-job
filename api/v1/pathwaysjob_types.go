@@ -87,13 +87,12 @@ type PathwaysJobStatus struct {
 	// controller statuses.
 	// One of - Pending, Running, Suspended, Completed, Failed.
 	// Contains a human readable message to provide additional details to the
-	// user. Conditions are mentioned below in more detail.
+	// user. Conditions are mentioned in PathwaysConditionType.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// Track the  of the Pathways TPU workers -
-	// derived from Worker replicatedJob
-	WorkerStatus *PathwaysComponentStatus `json:"workerStatus,omitempty"`
+	WorkersStatus *WorkersStatus `json:"workersStatus,omitempty"`
 
 	// Tracks the  of the Pathways controller -
 	// 1. derived from "leader" replicatedJob in colocated mode
@@ -146,15 +145,16 @@ type ControllerSpec struct {
 	// +optional
 	UserPodTemplate *corev1.PodTemplateSpec `json:"template,omitempty" protobuf:"bytes,6,opt,name=template"`
 }
+
 type PathwaysConditionType string
 
 // These are built-in conditions for PathwaysJob.
 const (
-	// PathwaysJobPending means the underlying JobSet may be deployed, but
-	// pods are yet to be scheduled on nodes.
+	// PathwaysJobPending means the PathwaysJob is constructed and/or may be
+	// deployed, but pods are yet to be scheduled on nodes.
 	PathwaysJobPending PathwaysConditionType = "Pending"
-	// PathwaysJobRunning means the underlying JobSet has been scheduled and
-	// is in progress.
+	// PathwaysJobRunning means PathwaysJob has been scheduled and
+	// Pathways servers have started running.
 	PathwaysJobRunning PathwaysConditionType = "Running"
 	// PathwaysJobCompleted means the underlying JobSet has completed its
 	// execution.
@@ -166,16 +166,41 @@ const (
 	PathwaysJobSuspended PathwaysConditionType = "Suspended"
 )
 
-type PathwaysComponentStatus struct {
-	//  of the Pathways Component ~~ (Worker or Controller
-	// replicatedJobs)
-	// Pending - one of more jobs ready but not active.
-	// Running - all jobs active.
-	// Suspended - all jobs suspended.
-	// Completed - all jobs completed successfully.
-	// Failed - one or more jobs failed.
-	CurrentStatus string `json:"currentStatus,omitempty"`
+type ControllerStatus struct {
+	// Status of the Pathways Controller
+	CurrentStatus *PathwaysComponentStatus `json:"currentStatus,omitempty"`
 }
+
+type WorkersStatus struct {
+	// Status aggregated over all TPU slices.
+	// One of - Pending, Running, Suspended, Completed, Failed.
+	AggregateWorkersStatus *PathwaysComponentStatus `json:"aggregateWorkersStatus,omitempty"`
+	// Status details on each TPU worker slice
+	WorkersSliceStatus []WorkerSliceStatus `json:"workersSliceStatus,omitempty"`
+}
+
+type WorkerSliceStatus struct {
+	// Individual TPU slice's status.
+	SliceStatus *PathwaysComponentStatus `json:"sliceStatus,omitempty"`
+	// Number of workers in the slice that are ready.
+	Ready int32 `json:"ready,omitempty"`
+}
+
+type PathwaysComponentStatus string
+
+// Pending - one of more jobs ready but not active.
+// Running - all jobs active.
+// Suspended - all jobs suspended.
+// Completed - all jobs completed successfully.
+// Failed - one or more jobs failed.
+const (
+	PathwaysComponentStatusPending PathwaysComponentStatus = "Pending"
+	// Running will be based on a readiness probe
+	PathwaysComponentStatusRunning   PathwaysComponentStatus = "Running"
+	PathwaysComponentStatusCompleted PathwaysComponentStatus = "Completed"
+	PathwaysComponentStatusFailed    PathwaysComponentStatus = "Failed"
+	PathwaysComponentStatusSuspended PathwaysComponentStatus = "Suspended"
+)
 
 func init() {
 	SchemeBuilder.Register(&PathwaysJob{}, &PathwaysJobList{})
