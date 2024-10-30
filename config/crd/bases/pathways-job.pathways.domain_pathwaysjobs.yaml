@@ -8108,7 +8108,7 @@ spec:
                   controller statuses.
                   One of - Pending, Running, Suspended, Completed, Failed.
                   Contains a human readable message to provide additional details to the
-                  user. Conditions are mentioned below in more detail.
+                  user. Conditions are mentioned in PathwaysConditionType.
                 items:
                   description: "Condition contains details for one aspect of the current
                     state of this API Resource.\n---\nThis struct is intended for
@@ -8186,33 +8186,28 @@ spec:
                   default + headless mode.
                   3. derived from "rm", "proxy" and "user-job" replicatedJobs in
                   default + container mode.
+                type: string
+              workersStatus:
+                description: Track the  of the Pathways TPU workers -
                 properties:
-                  currentStatus:
-                    description: |2-
-                       of the Pathways Component ~~ (Worker or Controller
-                      replicatedJobs)
-                      Pending - one of more jobs ready but not active.
-                      Running - all jobs active.
-                      Suspended - all jobs suspended.
-                      Completed - all jobs completed successfully.
-                      Failed - one or more jobs failed.
+                  aggregateWorkersStatus:
+                    description: |-
+                      Status aggregated over all TPU slices.
+                      One of - Pending, Running, Suspended, Completed, Failed.
                     type: string
-                type: object
-              workerStatus:
-                description: |-
-                  Track the  of the Pathways TPU workers -
-                  derived from Worker replicatedJob
-                properties:
-                  currentStatus:
-                    description: |2-
-                       of the Pathways Component ~~ (Worker or Controller
-                      replicatedJobs)
-                      Pending - one of more jobs ready but not active.
-                      Running - all jobs active.
-                      Suspended - all jobs suspended.
-                      Completed - all jobs completed successfully.
-                      Failed - one or more jobs failed.
-                    type: string
+                  workersSliceStatus:
+                    description: Status details on each TPU worker slice
+                    items:
+                      properties:
+                        ready:
+                          description: Number of workers in the slice that are ready.
+                          format: int32
+                          type: integer
+                        sliceStatus:
+                          description: Individual TPU slice's status.
+                          type: string
+                      type: object
+                    type: array
                 type: object
             type: object
         type: object
