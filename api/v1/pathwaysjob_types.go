@@ -171,6 +171,7 @@ type ControllerStatus struct {
 	CurrentStatus *PathwaysComponentStatus `json:"currentStatus,omitempty"`
 }
 
+// ReplicatedJob Status in JobSet
 type WorkersStatus struct {
 	// Status aggregated over all TPU slices.
 	// One of - Pending, Running, Suspended, Completed, Failed.
@@ -179,6 +180,7 @@ type WorkersStatus struct {
 	WorkersSliceStatus []WorkerSliceStatus `json:"workersSliceStatus,omitempty"`
 }
 
+// Job Status in JobSet
 type WorkerSliceStatus struct {
 	// Individual TPU slice's status.
 	SliceStatus *PathwaysComponentStatus `json:"sliceStatus,omitempty"`

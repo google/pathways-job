@@ -8198,6 +8198,7 @@ spec:
                   workersSliceStatus:
                     description: Status details on each TPU worker slice
                     items:
+                      description: Job Status in JobSet
                       properties:
                         ready:
                           description: Number of workers in the slice that are ready.

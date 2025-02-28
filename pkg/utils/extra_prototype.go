@@ -186,3 +186,29 @@ package utils
 // 		}
 // 	}
 // }
+
+// function to listChildJobSets, based on https://github.com/kubernetes-sigs/jobset/blob/main/client-go/clientset/versioned/typed/jobset/v1alpha2/jobset.go#L44
+
+// function to updatePathwaysJob Status ~~ updateJobSetStatus. Pathways status is same as JobSet Status. This function will mainly update Conditions and Message.
+// similar to https://github.com/kubernetes-sigs/jobset/blob/main/pkg/controllers/jobset_controller.go#L248
+// JobSet conditions - https://github.com/kubernetes-sigs/jobset/blob/main/pkg/controllers/jobset_controller.go#L822
+
+// function to suspendJobSet
+
+// function to resumeJobSet
+
+// function to deleteJobSet, based on https://github.com/kubernetes-sigs/jobset/blob/main/client-go/clientset/versioned/typed/jobset/v1alpha2/jobset.go#L41
+
+// function isJobSetFinished reuse jobSetFinished
+
+// funtion pathwaysJobFinished  (?)
+
+// function setCondition and updateCondition
+
+// function setPathwaysJobCompletedCondition
+
+// function setPathwaysJobFailedCondition
+
+// function setPathwaysJobSuspendedCondition
+
+// function setPathwaysJobResumedCondition
