@@ -110,31 +110,6 @@ func (r *PathwaysJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return ctrl.Result{}, nil
 }
 
-// function to listChildJobSets, based on https://github.com/kubernetes-sigs/jobset/blob/main/client-go/clientset/versioned/typed/jobset/v1alpha2/jobset.go#L44
-
-// function to updatePathwaysJob Status ~~ updateJobSetStatus. Pathways status is same as JobSet Status. This function will mainly update Conditions and Message.
-// similar to https://github.com/kubernetes-sigs/jobset/blob/main/pkg/controllers/jobset_controller.go#L248
-// JobSet conditions - https://github.com/kubernetes-sigs/jobset/blob/main/pkg/controllers/jobset_controller.go#L822
-
-// function to suspendJobSet
-
-// function to resumeJobSet
-
-// function to deleteJobSet, based on https://github.com/kubernetes-sigs/jobset/blob/main/client-go/clientset/versioned/typed/jobset/v1alpha2/jobset.go#L41
-
-// function isJobSetFinished reuse jobSetFinished
-
-// funtion pathwaysJobFinished  (?)
-
-// function setCondition and updateCondition
-
-// function setPathwaysJobCompletedCondition
-
-// function setPathwaysJobFailedCondition
-
-// function setPathwaysJobSuspendedCondition
-
-// function setPathwaysJobResumedCondition
 func (r *PathwaysJobReconciler) getChildJobSet(ctx context.Context, pw *pathwaysjob.PathwaysJob, jobSetClient *jobsetclient.Clientset) (*jobsetv1alpha2.JobSet, error) {
 	log3 := ctrl.LoggerFrom(ctx)
 	// .WithValues("pathwaysjob", klog.KObj(pw))
@@ -244,58 +219,13 @@ func (r *PathwaysJobReconciler) findJobSetStatus(ctx context.Context, js *jobset
 	// 	}
 	// }
 	// return false, ""
-	for _, status := range js.Status.ReplicatedJobsStatus {
-		log.Info("PathwaysJob RJ status ", "Name ", status.Name, "Ready ", status.Ready, "Succeeded ", status.Succeeded, "Failed ", status.Failed, "Active ", status.Active, "Suspended ", status.Suspended)
-	}
+	// for _, status := range js.Status.ReplicatedJobsStatus {
+	// 	log.Info("PathwaysJob RJ status ", "Name ", status.Name, "Ready ", status.Ready, "Succeeded ", status.Succeeded, "Failed ", status.Failed, "Active ", status.Active, "Suspended ", status.Suspended)
+	// }
+
+	// updateWorkerStatus(ctx, js)
 
 }
-
-// func calculatePathwaysComponentStatus(ctx context.Context, rjs *jobsetv1alpha2.ReplicatedJobStatus, totalJobs int32) (string, error) {
-// 	// From the replicated Job Status struct, determine if this component is in one of
-// 	// Pending - one of more jobs ready but not active.
-// 	// Running - all jobs active.
-// 	// Suspended - one or more jobs suspended.
-// 	// Completed - all jobs succeeded.
-// 	// Failed - one or more jobs failed.
-// 	var currentStatus string
-// 	if rjs.Failed > 0 {
-// 		currentStatus = "Failed"
-// 	} else if rjs.Succeeded > 0 {
-// 		currentStatus = "Suspended"
-// 	} else if rjs.Ready > 0 {
-// 		currentStatus = "Pending"
-// 	} else if rjs.Active == totalJobs {
-// 		currentStatus = "Running"
-// 	} else if rjs.Succeeded == totalJobs {
-// 		currentStatus = "Completed"
-// 	}
-
-// 	return currentStatus, nil
-// }
-
-// func updatePathwaysWorkerStatus(ctx context.Context, pw *pathwaysjob.PathwaysJob) error {
-// 	// find worker replicated job, find parallelisms in worker replicated Job for the job count ,
-// 	// call calculatePathwaysComponentStatus
-// 	// update status
-// }
-
-// func updatePathwaysControllerStatus(ctx context.Context, pw *pathwaysjob.PathwaysJob) error {
-// 	// for colocate mode -
-// 	// find leader replicated job
-// 	// call calculatePathwaysComponentStatus
-// 	// update status
-
-// 	// for deafult + headless mode -
-// 	// find rm and proxy replicated jobs
-// 	// call calculatePathwaysComponentStatus
-// 	// update status, combining both statuses
-
-// 	// for deafult + container mode -
-// 	// find rm and proxy replicated jobs
-// 	// call calculatePathwaysComponentStatus
-// 	// update status, combining three statuses
-
-// }
 
 // ---------------------- PATHWAYS HELPERS --------------------------
 
@@ -344,6 +274,73 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, rmJobName string) (*corev1.
 		// Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(10000000000, resource.DecimalSI)}},
 	}
 	return &proxyContainerSpec, nil
+}
+
+// Constructs JobSet's replicated job for the Pathways worker
+func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName string) (jobsetv1alpha2.ReplicatedJob, error) {
+	// Some predefined variables
+	truth := true
+	volumeSourceType := corev1.HostPathDirectoryOrCreate
+
+	workerJob := jobsetv1alpha2.ReplicatedJob{
+		Name:     "worker",
+		Replicas: int32(pw.Spec.Workers[0].NumSlices),
+		Template: batchv1.JobTemplateSpec{
+			Spec: batchv1.JobSpec{
+				BackoffLimit: ptr.To(int32(0)),
+				Completions:  ptr.To(int32(2)), // remember to update
+				Parallelism:  ptr.To(int32(2)), // remember to update
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:            "pathways-worker",
+								Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/server:latest",
+								ImagePullPolicy: "Always",
+								SecurityContext: &corev1.SecurityContext{Privileged: &truth},
+								Args: []string{
+									"--server_port=38679",
+									fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:38677", pw.GetName(), rmJobName, pw.GetName()),
+									fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
+								},
+								Env: []corev1.EnvVar{
+									{Name: "TPU_MIN_LOG_LEVEL", Value: "0"},
+									{Name: "TF_CPP_MIN_LOG_LEVEL", Value: "0"},
+									{Name: "XCLOUD_ENVIRONMENT", Value: "GCP"},
+								},
+								Ports: []corev1.ContainerPort{{ContainerPort: 38679}, {ContainerPort: 38680}, {ContainerPort: 8471}, {ContainerPort: 8080}},
+								VolumeMounts: []corev1.VolumeMount{
+									{
+										Name:      "shared-tmp",
+										MountPath: "/tmp",
+									},
+								},
+								Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"google.com/tpu": *resource.NewQuantity(4, resource.DecimalSI)}},
+							}, // end Pathways worker container
+						},
+						NodeSelector: map[string]string{
+							"cloud.google.com/gke-tpu-accelerator": pw.Spec.Workers[0].Type,
+							"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
+						},
+						Volumes: []corev1.Volume{
+							{
+								Name: "shared-tmp",
+								VolumeSource: corev1.VolumeSource{
+									HostPath: &corev1.HostPathVolumeSource{
+										Path: "/tmp",
+										Type: &volumeSourceType,
+									},
+								},
+							},
+						}, // end Volumes
+						HostNetwork: true,                              // For performance == McJAX
+						DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
+					},
+				},
+			},
+		},
+	} // end worker replicated job
+	return workerJob, nil
 }
 
 func MakePodAffinityRules(pw *pathwaysjob.PathwaysJob) (*corev1.Affinity, error) {
@@ -575,69 +572,73 @@ func MakeJobsForDefaultDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJ
 	return []jobsetv1alpha2.ReplicatedJob{rmJob, proxyJob, userJob}, nil
 }
 
-// Constructs JobSet's replicated job for the Pathways worker
-func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName string) (jobsetv1alpha2.ReplicatedJob, error) {
-	// Some predefined variables
-	truth := true
-	volumeSourceType := corev1.HostPathDirectoryOrCreate
+// ---------------------- PATHWAYS STATUS HELPERS --------------------------
 
-	workerJob := jobsetv1alpha2.ReplicatedJob{
-		Name:     "worker",
-		Replicas: int32(pw.Spec.Workers[0].NumSlices),
-		Template: batchv1.JobTemplateSpec{
-			Spec: batchv1.JobSpec{
-				BackoffLimit: ptr.To(int32(0)),
-				Completions:  ptr.To(int32(2)), // remember to update
-				Parallelism:  ptr.To(int32(2)), // remember to update
-				Template: corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name:            "pathways-worker",
-								Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/server:latest",
-								ImagePullPolicy: "Always",
-								SecurityContext: &corev1.SecurityContext{Privileged: &truth},
-								Args: []string{
-									"--server_port=38679",
-									fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:38677", pw.GetName(), rmJobName, pw.GetName()),
-									fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
-								},
-								Env: []corev1.EnvVar{
-									{Name: "TPU_MIN_LOG_LEVEL", Value: "0"},
-									{Name: "TF_CPP_MIN_LOG_LEVEL", Value: "0"},
-									{Name: "XCLOUD_ENVIRONMENT", Value: "GCP"},
-								},
-								Ports: []corev1.ContainerPort{{ContainerPort: 38679}, {ContainerPort: 38680}, {ContainerPort: 8471}, {ContainerPort: 8080}},
-								VolumeMounts: []corev1.VolumeMount{
-									{
-										Name:      "shared-tmp",
-										MountPath: "/tmp",
-									},
-								},
-								Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"google.com/tpu": *resource.NewQuantity(4, resource.DecimalSI)}},
-							}, // end Pathways worker container
-						},
-						NodeSelector: map[string]string{
-							"cloud.google.com/gke-tpu-accelerator": pw.Spec.Workers[0].Type,
-							"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
-						},
-						Volumes: []corev1.Volume{
-							{
-								Name: "shared-tmp",
-								VolumeSource: corev1.VolumeSource{
-									HostPath: &corev1.HostPathVolumeSource{
-										Path: "/tmp",
-										Type: &volumeSourceType,
-									},
-								},
-							},
-						}, // end Volumes
-						HostNetwork: true,                              // For performance == McJAX
-						DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
-					},
-				},
-			},
-		},
-	} // end worker replicated job
-	return workerJob, nil
-}
+// func calculatePathwaysComponentStatus(ctx context.Context, rjs *jobsetv1alpha2.ReplicatedJobStatus, totalJobs int32) (string, error) {
+// 	// From the replicated Job Status struct, determine if this component is in one of
+// 	// Pending - one of more jobs ready but not active.
+// 	// Running - all jobs active.
+// 	// Suspended - one or more jobs suspended.
+// 	// Completed - all jobs succeeded.
+// 	// Failed - one or more jobs failed.
+// 	var currentStatus string
+// 	if rjs.Failed > 0 {
+// 		currentStatus = "Failed"
+// 	} else if rjs.Succeeded > 0 {
+// 		currentStatus = "Suspended"
+// 	} else if rjs.Ready > 0 {
+// 		currentStatus = "Pending"
+// 	} else if rjs.Active == totalJobs {
+// 		currentStatus = "Running"
+// 	} else if rjs.Succeeded == totalJobs {
+// 		currentStatus = "Completed"
+// 	}
+
+// 	return currentStatus, nil
+// }
+
+// func updatePathwaysControllerStatus(ctx context.Context, pw *pathwaysjob.PathwaysJob) error {
+// 	// for colocate mode -
+// 	// find leader replicated job
+// 	// call calculatePathwaysComponentStatus
+// 	// update status
+
+// 	// for deafult + headless mode -
+// 	// find rm and proxy replicated jobs
+// 	// call calculatePathwaysComponentStatus
+// 	// update status, combining both statuses
+
+// 	// for deafult + container mode -
+// 	// find rm and proxy replicated jobs
+// 	// call calculatePathwaysComponentStatus
+// 	// update status, combining three statuses
+
+// }
+
+// func updateWorkerStatus(ctx context.Context, js *jobsetv1alpha2.JobSet) error {
+// 	// find worker replicated job, find parallelisms in worker replicated Job for the job count ,
+// 	// compare with ReplicatedJobStatus
+// 	// call updateWorkerSliceStatus
+// 	// update status
+// 	log2 := ctrl.LoggerFrom(ctx)
+// 	workerReplicatedJobStatus := findReplicatedJobStatusByName(js, "worker")
+// 	log2.Info("PathwaysJob: in updateWorkerStatus", "Name ", workerReplicatedJobStatus.Name, "Ready ", workerReplicatedJobStatus.Ready, "Succeeded ", workerReplicatedJobStatus.Succeeded, "Failed ", workerReplicatedJobStatus.Failed, "Active ", workerReplicatedJobStatus.Active, "Suspended ", workerReplicatedJobStatus.Suspended)
+// 	return nil
+// }
+
+// func updateWorkerSliceStatus(ctx context.Context) error {
+// 	// find worker job, find parallelisms in worker replicated Job for the job count ,
+// 	// call calculatePathwaysComponentStatus
+// 	// update status
+// 	// JobSetSpec -> ReplicatedJobs -> Template -> JobSpec, JobStatus
+
+// }
+
+// func findReplicatedJobStatusByName(js *jobsetv1alpha2.JobSet, replicatedJobName string) *jobsetv1alpha2.ReplicatedJobStatus {
+// 	for _, rjob := range js.Status.ReplicatedJobsStatus {
+// 		if rjob.Name == replicatedJobName {
+// 			return &rjob
+// 		}
+// 	}
+// 	return nil // Replicated job not found
+// }
