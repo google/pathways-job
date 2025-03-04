@@ -149,6 +149,8 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 
 	workerJob, _ := MakeWorkerJob(ctx, pw, rmJobName)
 
+	log2.Info("Length of jobs - ", "HERERERERERE", len(append(jobs, workerJob)))
+
 	mainJobSetConfig := jobsetv1alpha2.JobSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pw.GetName(),
@@ -238,11 +240,11 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, rmJobName string)
 		ImagePullPolicy: "Always",
 		SecurityContext: &corev1.SecurityContext{Privileged: &truth},
 		Args: []string{
-			"--server_port=38677",
+			"--server_port=29001",
 			fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
 			"--node_type=resource_manager",
 			fmt.Sprintf("--instance_count=%d", int32(pw.Spec.Workers[0].NumSlices)),
-			"--instance_type=tpuv4:2x2x2", // Change
+			"--instance_type=tpuv4:2x2x1", // Remember to change
 		},
 		Env: []corev1.EnvVar{
 			{Name: "REPLICATED_JOB_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/replicatedjob-name']"}}},
@@ -250,7 +252,7 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, rmJobName string)
 			{Name: "HOST_ADDRESS", Value: fmt.Sprintf("%s-%s-0-0.%s", pw.GetName(), rmJobName, pw.GetName())},
 			{Name: "TPU_SKIP_MDS_QUERY", Value: "true"},
 		},
-		Ports: []corev1.ContainerPort{{ContainerPort: 38677}, {ContainerPort: 38678}},
+		Ports: []corev1.ContainerPort{{ContainerPort: 29001}, {ContainerPort: 29002}},
 		// Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(8000000000, resource.DecimalSI)}},
 	}
 	return &rmContainerSpec, nil
@@ -266,11 +268,11 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, rmJobName string) (*corev1.
 		ImagePullPolicy: "Always",
 		SecurityContext: &corev1.SecurityContext{Privileged: &truth},
 		Args: []string{
-			"--server_port=38681",
-			fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:38677", pw.GetName(), rmJobName, pw.GetName()),
+			"--server_port=29008",
+			fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:29001", pw.GetName(), rmJobName, pw.GetName()),
 			fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
 		},
-		Ports: []corev1.ContainerPort{{ContainerPort: 38681}, {ContainerPort: 38682}},
+		Ports: []corev1.ContainerPort{{ContainerPort: 29008}},
 		// Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(10000000000, resource.DecimalSI)}},
 	}
 	return &proxyContainerSpec, nil
@@ -282,14 +284,17 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName s
 	truth := true
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
 
+	logx := ctrl.LoggerFrom(ctx)
+	logx.Info("************************* PathwaysJob MakeWorkerJob ", "Number of jobs", pw.Spec.Workers[0].NumSlices)
+
 	workerJob := jobsetv1alpha2.ReplicatedJob{
 		Name:     "worker",
 		Replicas: int32(pw.Spec.Workers[0].NumSlices),
 		Template: batchv1.JobTemplateSpec{
 			Spec: batchv1.JobSpec{
-				BackoffLimit: ptr.To(int32(0)),
-				Completions:  ptr.To(int32(2)), // remember to update
-				Parallelism:  ptr.To(int32(2)), // remember to update
+				BackoffLimit: ptr.To(int32(4)),
+				Completions:  ptr.To(int32(1)), // number of workers remember to change
+				Parallelism:  ptr.To(int32(1)), // number of workers  remember to change
 				Template: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -299,8 +304,8 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName s
 								ImagePullPolicy: "Always",
 								SecurityContext: &corev1.SecurityContext{Privileged: &truth},
 								Args: []string{
-									"--server_port=38679",
-									fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:38677", pw.GetName(), rmJobName, pw.GetName()),
+									"--server_port=29005",
+									fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:29001", pw.GetName(), rmJobName, pw.GetName()),
 									fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
 								},
 								Env: []corev1.EnvVar{
@@ -308,7 +313,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName s
 									{Name: "TF_CPP_MIN_LOG_LEVEL", Value: "0"},
 									{Name: "XCLOUD_ENVIRONMENT", Value: "GCP"},
 								},
-								Ports: []corev1.ContainerPort{{ContainerPort: 38679}, {ContainerPort: 38680}, {ContainerPort: 8471}, {ContainerPort: 8080}},
+								Ports: []corev1.ContainerPort{{ContainerPort: 29005}, {ContainerPort: 29006}, {ContainerPort: 8471}, {ContainerPort: 8080}},
 								VolumeMounts: []corev1.VolumeMount{
 									{
 										Name:      "shared-tmp",
