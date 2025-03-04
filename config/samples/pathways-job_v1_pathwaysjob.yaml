@@ -15,12 +15,12 @@
 apiVersion: pathways-job.pathways.domain/v1
 kind: PathwaysJob
 metadata:
-  name: pathways-trial1
+  name: pathways-trial11
 spec:
-  maxRestarts: 0
+  maxRestarts: 4
   workers:
   - type: tpu-v4-podslice
-    topology: 2x2x2
+    topology: 2x2x1
     numSlices: 1
   pathwaysDir: "gs://cloud-pathways-staging/tmp"
   controller:
@@ -35,7 +35,7 @@ spec:
           - name: JAX_PLATFORMS
             value: proxy
           - name: JAX_BACKEND_TARGET
-            value: grpc://pathways-trial1-leader-0-0.pathways-trial1:38681
+            value: grpc://pathways-trial11-leader-0-0.pathways-trial11:29008
           image: us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/maxtext_jax_stable:latest
           imagePullPolicy: Always
           command:
@@ -65,7 +65,7 @@ spec:
     #       - name: JAX_PLATFORMS
     #         value: proxy
     #       - name: JAX_BACKEND_TARGET
-    #         value: grpc://pathways-trial1-leader-0-0.pathways-trial1:38681
+    #         value: grpc://pathways-trial1-leader-0-0.pathways-trial1:29000
     #       command:
     #         - bash
     #         - -c
