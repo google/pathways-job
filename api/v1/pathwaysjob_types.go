@@ -112,12 +112,22 @@ const (
 	Default  DeploymentMode = "default"
 )
 
+// +kubebuilder:validation:Enum=tpu-v4-podslice;tpu-v5p-slice;tpu-v5-lite-podslice;tpu-v6e-slice
+type WorkerType string
+
+const (
+	tpu_v4_podslice      WorkerType = "tpu-v4-podslice"
+	tpu_v5p_slice        WorkerType = "tpu-v5p-slice"
+	tpu_v5_lite_podslice WorkerType = "tpu-v5-lite-podslice"
+	tpu_v6e_slice        WorkerType = "tpu-v6e-slice"
+)
+
 // The WorkerSpec struct lists the specifications for the
 // Pathways workers.
 type WorkerSpec struct {
 	// This will translate to a nodeSelector of the form
 	// cloud.google.com/gke-tpu-accelerator: tpu-v5-lite-podslice
-	Type string `json:"type"`
+	Type WorkerType `json:"type"`
 
 	// This will translate to a nodeSelector of the form
 	// cloud.google.com/gke-tpu-topology:2x2
