@@ -8088,6 +8088,11 @@ spec:
                       description: |-
                         This will translate to a nodeSelector of the form
                         cloud.google.com/gke-tpu-accelerator: tpu-v5-lite-podslice
+                      enum:
+                      - tpu-v4-podslice
+                      - tpu-v5p-slice
+                      - tpu-v5-lite-podslice
+                      - tpu-v6e-slice
                       type: string
                   required:
                   - numSlices

@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -42,6 +44,14 @@ type PathwaysJobReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
+
+// Public variables to store TPU information
+var (
+	TPUVersion   string
+	TPUTopology  string
+	InstanceType string
+	NumVMs       int32
+)
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -85,7 +95,7 @@ func (r *PathwaysJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	childJobSet, err := r.getChildJobSet(ctx, pw, jobSetClient)
 	if err != nil {
-		log.Info("PathwaysJob: can't find JobSet")
+		log.Info("PathwaysJob: can't find JobSet, may create one!")
 		// return ctrl.Result{}, err
 	} else if childJobSet != nil {
 		log.Info("PathwaysJob: JobSet exists, not creating")
@@ -134,6 +144,9 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 
 	var jobs []jobsetv1alpha2.ReplicatedJob
 	var rmJobName string
+
+	calculateTPUInfo(ctx, pw)
+	log2.Info("PathwaysJob: in createJobSet TPU variables", "TPUVersion", TPUVersion, "TPUTopology", TPUTopology, "InstanceType", InstanceType, "NumVMs", NumVMs)
 
 	// Pathways Spec + JobSet for training or batch inference ------
 	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Colocate {
@@ -208,6 +221,50 @@ func (r *PathwaysJobReconciler) findJobSetStatus(ctx context.Context, js *jobset
 
 // ---------------------- PATHWAYS HELPERS --------------------------
 
+func extractTPUVersionFromWorkersType(ctx context.Context, tpuGKEAcceleratorType pathwaysjob.WorkerType) string {
+	log := ctrl.LoggerFrom(ctx)
+	parts := strings.Split(string(tpuGKEAcceleratorType), "-")
+	if len(parts) >= 2 && strings.HasPrefix(parts[1], "v") {
+		log.Info("TPU type and version", "value ", parts[0]+parts[1])
+		return parts[0] + parts[1]
+	}
+	return ""
+}
+
+func validateTPUTopology(topology string) string {
+	// ToDo: validate topology based on the TPU type
+	return topology
+}
+func calculateVMsFromTopology(topology string) int32 {
+	parts := strings.Split(topology, "x") // Examples - 2x2x4 or 4x4
+	if len(parts) < 2 {
+		return 0
+	}
+	// Calculate the number of chips based on the Topology.
+	chips := 1
+	for _, part := range parts {
+		num, _ := strconv.Atoi(part)
+		chips *= num
+	}
+	vms := 1
+	chipsperVM := 4
+	if chips >= chipsperVM {
+		vms = chips / chipsperVM
+	}
+
+	return int32(vms)
+}
+
+func calculateTPUInfo(ctx context.Context, pw *pathwaysjob.PathwaysJob) {
+	tpuVersion := extractTPUVersionFromWorkersType(ctx, pw.Spec.Workers[0].Type)
+	TPUVersion = tpuVersion // setting public variable
+	tpuTopology := validateTPUTopology(pw.Spec.Workers[0].Topology)
+	TPUTopology = tpuTopology // setting public variable
+	InstanceType = tpuVersion + ":" + tpuTopology
+	NumVMs = calculateVMsFromTopology(pw.Spec.Workers[0].Topology)
+
+}
+
 // Constructs the Pathways resource manager container spec for the underlying JobSet
 func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, rmJobName string) (*corev1.Container, error) {
 	truth := true
@@ -222,7 +279,7 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, rmJobName string)
 			fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
 			"--node_type=resource_manager",
 			fmt.Sprintf("--instance_count=%d", int32(pw.Spec.Workers[0].NumSlices)),
-			"--instance_type=tpuv4:2x2x1", // ToDo: update with Spec map
+			fmt.Sprintf("--instance_type=%s", InstanceType),
 		},
 		Env: []corev1.EnvVar{
 			{Name: "REPLICATED_JOB_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/replicatedjob-name']"}}},
@@ -268,8 +325,8 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName s
 		Template: batchv1.JobTemplateSpec{
 			Spec: batchv1.JobSpec{
 				BackoffLimit: ptr.To(int32(4)),
-				Completions:  ptr.To(int32(1)), // number of workers remember to change
-				Parallelism:  ptr.To(int32(1)), // number of workers  remember to change
+				Completions:  ptr.To(int32(NumVMs)), // number of workers remember to change
+				Parallelism:  ptr.To(int32(NumVMs)), // number of workers  remember to change
 				Template: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -299,7 +356,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName s
 							}, // end Pathways worker container
 						},
 						NodeSelector: map[string]string{
-							"cloud.google.com/gke-tpu-accelerator": pw.Spec.Workers[0].Type,
+							"cloud.google.com/gke-tpu-accelerator": string(pw.Spec.Workers[0].Type),
 							"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
 						},
 						Volumes: []corev1.Volume{
@@ -396,7 +453,7 @@ func MakeLeaderJobForColocatedDeployment(ctx context.Context, pw *pathwaysjob.Pa
 					Spec: corev1.PodSpec{
 						Affinity: affinitySpec,
 						NodeSelector: map[string]string{
-							"cloud.google.com/gke-tpu-accelerator": pw.Spec.Workers[0].Type,
+							"cloud.google.com/gke-tpu-accelerator": string(pw.Spec.Workers[0].Type),
 							"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
 						},
 						HostNetwork: true,                              // For performance == McJAX
