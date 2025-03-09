@@ -135,6 +135,7 @@ func (r *PathwaysJobReconciler) getChildJobSet(ctx context.Context, pw *pathways
 	return js, nil
 }
 
+// Create the JobSet for 'colocated' or 'default' deployment modes.
 func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjob.PathwaysJob, jobSetClient *jobsetclient.Clientset) error {
 	log2 := ctrl.LoggerFrom(ctx)
 	// .WithValues("pathwaysjob", klog.KObj(pw))
@@ -199,10 +200,11 @@ func (r *PathwaysJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&pathwaysjob.PathwaysJob{}).
-		Owns(&jobsetv1alpha2.JobSet{}). // For JobSet
+		Owns(&jobsetv1alpha2.JobSet{}). // PathwaysJob owns the underlying JobSet object
 		Complete(r)
 }
 
+// Find the status of the underlying JobSet for 'colocated' or 'default' deployment modes.
 func (r *PathwaysJobReconciler) findJobSetStatus(ctx context.Context, js *jobsetv1alpha2.JobSet) {
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("PathwaysJob findJobSetStatus", "Jobset name", js.ObjectMeta.Name)
@@ -220,21 +222,24 @@ func (r *PathwaysJobReconciler) findJobSetStatus(ctx context.Context, js *jobset
 }
 
 // ---------------------- PATHWAYS HELPERS --------------------------
-
-func extractTPUVersionFromWorkersType(ctx context.Context, tpuGKEAcceleratorType pathwaysjob.WorkerType) string {
+// Find TPU version from the worker's type (- used to determine Pathways instance_type)
+func extractTPUVersionFromWorkerType(ctx context.Context, tpuGKEAcceleratorType pathwaysjob.WorkerType) string {
 	log := ctrl.LoggerFrom(ctx)
 	parts := strings.Split(string(tpuGKEAcceleratorType), "-")
 	if len(parts) >= 2 && strings.HasPrefix(parts[1], "v") {
 		log.Info("TPU type and version", "value ", parts[0]+parts[1])
-		return parts[0] + parts[1]
+		return parts[0] + parts[1] // example tpuv4 / tpuv5
 	}
 	return ""
 }
 
-func validateTPUTopology(topology string) string {
+// Validate that topology provided is valid for the provided worker type.
+func validateTPUTopologyWithType(tpuGKEAcceleratorType pathwaysjob.WorkerType, topology string) string {
 	// ToDo: validate topology based on the TPU type
 	return topology
 }
+
+// Calculate the number of VMs based on the Topology (- used in completions/parallelisms)
 func calculateVMsFromTopology(topology string) int32 {
 	parts := strings.Split(topology, "x") // Examples - 2x2x4 or 4x4
 	if len(parts) < 2 {
@@ -251,18 +256,15 @@ func calculateVMsFromTopology(topology string) int32 {
 	if chips >= chipsperVM {
 		vms = chips / chipsperVM
 	}
-
 	return int32(vms)
 }
 
+// Calculate all TPU related information
 func calculateTPUInfo(ctx context.Context, pw *pathwaysjob.PathwaysJob) {
-	tpuVersion := extractTPUVersionFromWorkersType(ctx, pw.Spec.Workers[0].Type)
-	TPUVersion = tpuVersion // setting public variable
-	tpuTopology := validateTPUTopology(pw.Spec.Workers[0].Topology)
-	TPUTopology = tpuTopology // setting public variable
-	InstanceType = tpuVersion + ":" + tpuTopology
-	NumVMs = calculateVMsFromTopology(pw.Spec.Workers[0].Topology)
-
+	TPUVersion := extractTPUVersionFromWorkerType(ctx, pw.Spec.Workers[0].Type)                      // setting public variable
+	TPUTopology := validateTPUTopologyWithType(pw.Spec.Workers[0].Type, pw.Spec.Workers[0].Topology) // setting public variable
+	InstanceType = TPUVersion + ":" + TPUTopology                                                    // setting public variable
+	NumVMs = calculateVMsFromTopology(pw.Spec.Workers[0].Topology)                                   // setting public variable
 }
 
 // Constructs the Pathways resource manager container spec for the underlying JobSet
@@ -307,14 +309,13 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, rmJobName string) (*corev1.
 			fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:29001", pw.GetName(), rmJobName, pw.GetName()),
 			fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
 		},
-		// "--xla_tpu_spmd_rng_bit_generator_unsafe=True",
 		Ports: []corev1.ContainerPort{{ContainerPort: 29008}},
 		// Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(10000000000, resource.DecimalSI)}},
 	}
 	return &proxyContainerSpec, nil
 }
 
-// Constructs Pathways worker replicated job for the underlying JobSet
+// Constructs Pathways worker replicated job for both 'colocated' and 'default' deployment modes.
 func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName string) (jobsetv1alpha2.ReplicatedJob, error) {
 	truth := true
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
