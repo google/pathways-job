@@ -193,6 +193,7 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 	}
 
 	workerJob, _ := MakeWorkerJob(ctx, pw, rmJobName)
+	successPolicy := MakeSuccessPolicy(pw)
 
 	mainJobSetConfig := jobsetv1alpha2.JobSet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -203,7 +204,7 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 			FailurePolicy: &jobsetv1alpha2.FailurePolicy{
 				MaxRestarts: pw.Spec.MaxRestarts,
 			},
-			SuccessPolicy:  &jobsetv1alpha2.SuccessPolicy{Operator: jobsetv1alpha2.OperatorAll, TargetReplicatedJobs: []string{rmJobName}}, // ToDo: change to user job
+			SuccessPolicy:  successPolicy,
 			ReplicatedJobs: append(jobs, workerJob),
 		},
 	}
@@ -256,6 +257,7 @@ func (r *PathwaysJobReconciler) findJobSetStatus(ctx context.Context, js *jobset
 }
 
 // ---------------------- PATHWAYS HELPERS --------------------------
+
 // Find TPU version from the worker's type (- used to determine Pathways instance_type)
 func constructTPUVersionFromWorkerType(tpuGKEAcceleratorType pathwaysjob.WorkerType) string {
 	// Worker types are already validated in the YAML.
@@ -293,7 +295,7 @@ func calculateVMsFromTopology(topology string) int32 {
 
 // Calculate all TPU related information
 func calculateTPUInfo(ctx context.Context, pw *pathwaysjob.PathwaysJob) error {
-	// setting public variable
+	// setting public variables
 	TPUVersion := constructTPUVersionFromWorkerType(pw.Spec.Workers[0].Type)
 	TPUTopology, err := validateTPUTopologyWithWorkerType(ctx, pw.Spec.Workers[0].Type, pw.Spec.Workers[0].Topology)
 	if err != nil {
@@ -313,6 +315,21 @@ func makeImageTagUsingPathwaysVersion(pw *pathwaysjob.PathwaysJob) string {
 		tag = "latest"
 	}
 	return tag
+}
+
+// Construct success policy based on deployment mode and user workload spec.
+func MakeSuccessPolicy(pw *pathwaysjob.PathwaysJob) *jobsetv1alpha2.SuccessPolicy {
+	var userJobName string
+	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Colocate {
+		userJobName = "leader"
+	} else {
+		userJobName = "user-job"
+	}
+	if isUserPodProvided(pw) {
+		return &jobsetv1alpha2.SuccessPolicy{Operator: jobsetv1alpha2.OperatorAll, TargetReplicatedJobs: []string{userJobName}}
+	} else {
+		return &jobsetv1alpha2.SuccessPolicy{}
+	}
 }
 
 // Constructs the Pathways resource manager container spec for the underlying JobSet
@@ -482,15 +499,21 @@ func MakePodAffinityRules(pw *pathwaysjob.PathwaysJob) (*corev1.Affinity, error)
 	return &affinity, nil
 }
 
+func isUserPodProvided(pw *pathwaysjob.PathwaysJob) bool {
+	if pw.Spec.Controller.UserPodTemplate != nil {
+		return true
+	}
+	return false
+}
+
 // Get the containers (main workload and any sidecars) from the user's pod spec.
 // This is used to inject the containers into the leader pod in the 'colocate' deployment mode.
 func GetUserContainerList(pw *pathwaysjob.PathwaysJob) ([]corev1.Container, error) {
 	// When workload is to be run in headless mode, no user pod will be provided.
-	if pw.Spec.Controller.UserPodTemplate == nil {
-		return nil, nil
+	if isUserPodProvided(pw) {
+		return pw.Spec.Controller.UserPodTemplate.Spec.Containers, nil
 	}
-	containerList := pw.Spec.Controller.UserPodTemplate.Spec.Containers
-	return containerList, nil
+	return nil, fmt.Errorf("no user pod provided, probably headless mode.")
 }
 
 // Construct the "leader" replicated job containing the Pathways RM, Pathways Proxy and User job
@@ -501,8 +524,14 @@ func MakeLeaderJobForColocatedDeployment(ctx context.Context, pw *pathwaysjob.Pa
 	RMContainerSpec, _ := MakeResourceManagerContainer(pw, rmJobName)
 	ProxyContainerSpec, _ := MakeProxyContainer(pw, rmJobName)
 	affinitySpec, _ := MakePodAffinityRules(pw)
-	containerList, _ := GetUserContainerList(pw)
-	containerList = append(containerList, *RMContainerSpec, *ProxyContainerSpec)
+	var containerList []corev1.Container
+
+	if isUserPodProvided(pw) {
+		containerList, _ = GetUserContainerList(pw)
+		containerList = append(containerList, *RMContainerSpec, *ProxyContainerSpec)
+	} else {
+		containerList = []corev1.Container{*RMContainerSpec, *ProxyContainerSpec}
+	}
 
 	leaderJob := jobsetv1alpha2.ReplicatedJob{
 		Name:     rmJobName,
@@ -554,7 +583,6 @@ func MakeJobsForDefaultDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJ
 
 	RMContainerSpec, _ := MakeResourceManagerContainer(pw, rmJobName)
 	ProxyContainerSpec, _ := MakeProxyContainer(pw, rmJobName)
-	userContainerList, _ := GetUserContainerList(pw)
 
 	rmJob := jobsetv1alpha2.ReplicatedJob{
 		Name:     "rm",
@@ -640,7 +668,8 @@ func MakeJobsForDefaultDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJ
 
 	// Adding user job conditionally for headless mode, if the user has provided containers in PodSpec.
 	// ToDo: Add other things in PodSpec
-	if userContainerList != nil {
+	if isUserPodProvided(pw) {
+		userContainerList, _ := GetUserContainerList(pw)
 		userJob := jobsetv1alpha2.ReplicatedJob{
 			Name:     "user-job",
 			Replicas: 1,
