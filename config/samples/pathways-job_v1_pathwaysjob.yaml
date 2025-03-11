@@ -15,18 +15,19 @@
 apiVersion: pathways-job.pathways.domain/v1
 kind: PathwaysJob
 metadata:
-  name: pathways-trial39
+  name: pathways-trial62
 spec:
-  maxRestarts: 4
+  maxRestarts: 10
   workers:
   - type: tpu-v4-podslice
-    topology: 2x2x1
-    numSlices: 1
+    topology: 2x2x2
+    numSlices: 2
   pathwaysDir: "gs://cloud-pathways-staging/tmp"
   controller:
-    deploymentMode: "colocate"
-    # deploymentMode: "default"
-    template:
+    # #Pod template for training, default mode.
+
+    deploymentMode: default
+    template: # UserPodTemplate
       spec:
         containers:
         - name: user
@@ -36,8 +37,7 @@ spec:
           - name: JAX_PLATFORMS
             value: proxy
           - name: JAX_BACKEND_TARGET
-            value: grpc://pathways-trial39-leader-0-0.pathways-trial39:29008
-            # value: grpc://pathways-trial38-proxy-0-0.pathways-trial38:29008
+            value: grpc://pathways-trial62-proxy-0-0.pathways-trial62:29008
           image: us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/maxtext_jax_stable:latest
           imagePullPolicy: Always
           command:
@@ -48,7 +48,74 @@ spec:
           volumeMounts:
           - mountPath: /tmp
             name: shared-tmp
-          # resources:
-          #   limits:
-          #     cpu: "20"
-          #     memory: 90G
+          resources:
+            limits:
+              cpu: "20"
+              memory: 90G
+
+
+
+    # #Pod template for inference, colocate mode.
+
+
+    # deploymentMode: colocate
+    # template: # UserPodTemplate
+    #   spec:
+    #     containers:
+    #     - name: jetstream
+    #       image: us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/maxtext_jax_stable:latest
+    #       imagePullPolicy: Always
+    #       ports:
+    #       - containerPort: 9000
+    #       env:
+    #       - name: XCLOUD_ENVIRONMENT
+    #         value: GCP
+    #       - name: JAX_PLATFORMS
+    #         value: proxy
+    #       - name: JAX_BACKEND_TARGET
+    #         value: grpc://pathways-trial61-leader-0-0.pathways-trial61:29008
+    #       command:
+    #         - bash
+    #         - -c
+    #         - 'echo Start: $(date);
+    #           _sigterm() ( kill -SIGTERM $! 2>/dev/null;);
+    #           trap _sigterm SIGTERM;
+    #           (JAX_TRACEBACK_FILTERING=off python3 MaxText/maxengine_server.py
+    #           MaxText/configs/inference_jetstream.yml tokenizer_path=assets/tokenizer.llama2
+    #           load_parameters_path=gs://runner-maxtext-logs/2024-05-07-23-34/unscanned_chkpt/checkpoints/0/items
+    #           max_prefill_predict_length=1024 max_target_length=2048 async_checkpointing=false
+    #           model_name=''llama2-70b'' steps=1 ici_fsdp_parallelism=1 ici_autoregressive_parallelism=-1
+    #           ici_tensor_parallelism=1 scan_layers=false weight_dtype=bfloat16
+    #           per_device_batch_size=2) & PID=$!;
+    #           while kill -0 $PID 2>/dev/null;
+    #           do sleep 5;
+    #           done;
+    #           wait $PID;
+    #           EXIT_CODE=$?
+    #           echo EXIT_CODE=$EXIT_CODE;
+    #           echo End sleep: $(date);
+    #           sleep infinity;'
+    #     - name: tester
+    #       image: us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/maxtext_jax_stable:latest
+    #       imagePullPolicy: Always
+    #       command:
+    #       - bash
+    #       - -c
+    #       - 'echo Start: $(date);
+    #         _sigterm() ( kill -SIGTERM $! 2>/dev/null;);
+    #         trap _sigterm SIGTERM;
+    #         for i in {1..5}; do
+    #           echo Sending request $i;
+    #           time python3 JetStream/jetstream/tools/requester.py --tokenizer assets/tokenizer.llama2 --max_tokens=16 --server=0.0.0.0 --text=\"why earth is round\";
+    #           EXIT_CODE=$?;
+    #           echo Completed request;
+    #           echo EXIT_CODE=$EXIT_CODE;
+    #           if [[ $EXIT_CODE -ne 0 ]]; then
+    #             break;
+    #           fi;
+    #         done;
+    #         echo Last EXIT_CODE=$EXIT_CODE;
+    #         echo End sleep: $(date);
+    #         sleep infinity;'
+    #       securityContext:
+    #         privileged: true

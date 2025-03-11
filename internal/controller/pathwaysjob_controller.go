@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -53,15 +54,46 @@ var (
 	NumVMs       int32
 )
 
+// Map to convert worker type to Instance type
+var WorkerTypeToTPUVersionMap = map[string]string{
+	"tpu-v6e-slice":        "tpuv6e",
+	"tpu-v5p-slice":        "tpuv5",
+	"tpu-v5-lite-podslice": "tpuv5",
+	"tpu-v4-podslice":      "tpuv4",
+}
+
+// Allowed topologies for each worker type
+var ValidTpuTopologiesMap = map[string][]string{
+	"tpu-v6e-slice": {
+		"1x1", "2x2", "2x4", "4x4", "4x8", "8x8", "8x16", "16x16",
+	},
+	"tpu-v5p-slice": {
+		"2x2x1", "2x2x2", "2x2x4", "2x4x4", "4x4x4", "4x4x8", "4x4x12", "4x8x8",
+		"4x4x20", "4x8x12", "4x4x28", "8x8x8", "4x12x12", "4x8x20", "4x4x44",
+		"8x8x12", "4x4x52", "4x8x28", "4x12x20", "8x8x16", "4x4x68", "8x12x12",
+		"4x4x76", "8x8x20", "4x12x28", "4x8x44", "4x4x92", "8x12x16", "4x20x20",
+		"4x8x52", "12x12x12", "8x8x28", "4x4x116", "8x12x20", "4x4x124", "8x16x16",
+		"4x12x44", "4x8x68", "4x20x28", "12x12x16", "4x4x148", "4x8x76", "4x12x52",
+		"8x16x20", "4x4x164", "8x12x28", "4x4x172", "8x8x44", "12x12x20", "4x8x92",
+		"4x4x188", "12x16x16", "4x28x28", "8x20x20", "4x12x68", "8x8x52", "4x4x212",
+		"12x12x24", "4x20x44", "8x16x28", "4x12x76", "4x8x116", "4x4x236", "12x16x20",
+		"4x4x244", "4x8x124", "12x12x28", "16x16x16", "4x20x52", "8x12x44", "8x8x68",
+		"4x12x92", "8x20x28", "12x16x24", "4x8x148", "12x20x20", "8x8x76", "4x28x44",
+		"8x12x52", "16x16x20", "12x12x36", "4x8x164", "12x16x28", "4x20x68", "4x8x172",
+		"4x12x116", "8x16x44", "12x20x24", "4x28x52", "8x8x92", "4x12x124", "4x8x188",
+		"4x20x76", "16x16x24", "12x24x24", "16x20x28",
+	},
+	"tpu-v5-lite-podslice": {
+		"2x4", "4x4", "4x8", "8x8", "8x16", "16x16",
+	},
+	"tpu-v4-podslice": {
+		"2x2x1", "2x2x2", "2x2x4", "2x4x4", "4x4x4", "4x4x8", "4x8x8", "8x8x8",
+		"8x8x12", "8x8x16", "8x16x16",
+	},
+}
+
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the PathwaysJob object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.18.4/pkg/reconcile
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=pathways-job.pathways.domain,resources=pathwaysjobs,verbs=get;list;watch;create;update;patch;delete
@@ -146,9 +178,13 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 	var jobs []jobsetv1alpha2.ReplicatedJob
 	var rmJobName string
 
-	calculateTPUInfo(ctx, pw)
-	log2.Info("PathwaysJob: in createJobSet TPU variables", "TPUVersion", TPUVersion, "TPUTopology", TPUTopology, "InstanceType", InstanceType, "NumVMs", NumVMs)
-
+	err := calculateTPUInfo(ctx, pw)
+	if err != nil {
+		log2.Info("PathwaysJob: in createJobSet calculateTPUInfo ", " Error: ", err)
+		return err
+	} else {
+		log2.Info("PathwaysJob: in createJobSet calculateTPUInfo ", "TPUVersion", TPUVersion, "TPUTopology", TPUTopology, "InstanceType", InstanceType, "NumVMs", NumVMs)
+	}
 	// Pathways Spec + JobSet for training or batch inference ------
 	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Colocate {
 		rmJobName = "leader"
@@ -223,20 +259,20 @@ func (r *PathwaysJobReconciler) findJobSetStatus(ctx context.Context, js *jobset
 
 // ---------------------- PATHWAYS HELPERS --------------------------
 // Find TPU version from the worker's type (- used to determine Pathways instance_type)
-func extractTPUVersionFromWorkerType(ctx context.Context, tpuGKEAcceleratorType pathwaysjob.WorkerType) string {
-	log := ctrl.LoggerFrom(ctx)
-	parts := strings.Split(string(tpuGKEAcceleratorType), "-")
-	if len(parts) >= 2 && strings.HasPrefix(parts[1], "v") {
-		log.Info("TPU type and version", "value ", parts[0]+parts[1])
-		return parts[0] + parts[1] // example tpuv4 / tpuv5
-	}
-	return ""
+func constructTPUVersionFromWorkerType(tpuGKEAcceleratorType pathwaysjob.WorkerType) string {
+	// Worker types are already validated in the YAML.
+	return WorkerTypeToTPUVersionMap[string(tpuGKEAcceleratorType)]
 }
 
 // Validate that topology provided is valid for the provided worker type.
-func validateTPUTopologyWithType(tpuGKEAcceleratorType pathwaysjob.WorkerType, topology string) string {
-	// ToDo: validate topology based on the TPU type
-	return topology
+func validateTPUTopologyWithWorkerType(ctx context.Context, tpuGKEAcceleratorType pathwaysjob.WorkerType, topology string) (string, error) {
+	log := ctrl.LoggerFrom(ctx)
+	if slices.Contains(ValidTpuTopologiesMap[string(tpuGKEAcceleratorType)], topology) {
+		return topology, nil
+	} else {
+		log.Info("Invalid topology!!! ", "Worker type ", string(tpuGKEAcceleratorType), " cannot have topology ", topology)
+		return "", fmt.Errorf("invalid TPU topology for worker type")
+	}
 }
 
 // Calculate the number of VMs based on the Topology (- used in completions/parallelisms)
@@ -260,11 +296,16 @@ func calculateVMsFromTopology(topology string) int32 {
 }
 
 // Calculate all TPU related information
-func calculateTPUInfo(ctx context.Context, pw *pathwaysjob.PathwaysJob) {
-	TPUVersion := extractTPUVersionFromWorkerType(ctx, pw.Spec.Workers[0].Type)                      // setting public variable
-	TPUTopology := validateTPUTopologyWithType(pw.Spec.Workers[0].Type, pw.Spec.Workers[0].Topology) // setting public variable
-	InstanceType = TPUVersion + ":" + TPUTopology                                                    // setting public variable
-	NumVMs = calculateVMsFromTopology(pw.Spec.Workers[0].Topology)                                   // setting public variable
+func calculateTPUInfo(ctx context.Context, pw *pathwaysjob.PathwaysJob) error {
+	// setting public variable
+	TPUVersion := constructTPUVersionFromWorkerType(pw.Spec.Workers[0].Type)
+	TPUTopology, err := validateTPUTopologyWithWorkerType(ctx, pw.Spec.Workers[0].Type, pw.Spec.Workers[0].Topology)
+	if err != nil {
+		return err
+	}
+	InstanceType = TPUVersion + ":" + TPUTopology
+	NumVMs = calculateVMsFromTopology(pw.Spec.Workers[0].Topology)
+	return nil
 }
 
 // Constructs the Pathways resource manager container spec for the underlying JobSet
@@ -310,7 +351,7 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, rmJobName string) (*corev1.
 			fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
 		},
 		Ports: []corev1.ContainerPort{{ContainerPort: 29008}},
-		// Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(10000000000, resource.DecimalSI)}},
+		// Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(100000000000, resource.DecimalSI)}}, //100GiB
 	}
 	return &proxyContainerSpec, nil
 }
@@ -427,6 +468,10 @@ func MakePodAffinityRules(pw *pathwaysjob.PathwaysJob) (*corev1.Affinity, error)
 // Get the containers (main workload and any sidecars) from the user's pod spec.
 // This is used to inject the containers into the leader pod in the 'colocate' deployment mode.
 func GetUserContainerList(pw *pathwaysjob.PathwaysJob) ([]corev1.Container, error) {
+	// When workload is to be run in headless mode, no user pod will be provided.
+	if pw.Spec.Controller.UserPodTemplate == nil {
+		return nil, nil
+	}
 	containerList := pw.Spec.Controller.UserPodTemplate.Spec.Containers
 	return containerList, nil
 }
@@ -570,7 +615,7 @@ func MakeJobsForDefaultDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJ
 
 	// Adding user job conditionally for headless mode, if the user has provided containers in PodSpec.
 	// ToDo: Add other things in PodSpec
-	if len(userContainerList) > 0 {
+	if userContainerList != nil {
 		userJob := jobsetv1alpha2.ReplicatedJob{
 			Name:     "user-job",
 			Replicas: 1,

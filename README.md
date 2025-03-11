@@ -1,6 +1,6 @@
 # pathways-job
 PathwaysJob API is an OSS Kubernetes-native API, to deploy ML training and batch inference workloads, using Pathways on GKE. 
-//ToDo(roshanin) - an intro of what Pathways is.
+//ToDo(roshanin) - add intro for Pathways.
 ## Description
 The PathwaysJob is an API that provides an easy way to run JAX workloads using Pathways. It support two modes of deployment.
 ### Colocate mode
