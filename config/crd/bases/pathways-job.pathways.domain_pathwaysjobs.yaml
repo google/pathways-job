@@ -14,10 +14,24 @@ spec:
     singular: pathwaysjob
   scope: Namespaced
   versions:
-  - name: v1
+  - additionalPrinterColumns:
+    - description: Final state of PathwaysJob
+      jsonPath: .status.terminalState
+      name: TerminalState
+      type: string
+    - jsonPath: .status.condition.type
+      name: Status
+      type: string
+    - description: Time this PathwaysJob was created
+      jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
     schema:
       openAPIV3Schema:
-        description: PathwaysJob is the Schema for the PathwaysJobs API
+        description: |-
+          PathwaysJob is the Schema for the PathwaysJobs API
+          Print column specifies the details seen on kubectl get pathwaysjob
         properties:
           apiVersion:
             description: |-
@@ -54,6 +68,9 @@ spec:
                     - colocate
                     - default
                     type: string
+                    x-kubernetes-validations:
+                    - message: deploymentMode is immutable
+                      rule: self == oldSelf
                   template:
                     description: |-
                       UserPodTemplate accepts a pod composed of user's workload
@@ -8051,22 +8068,34 @@ spec:
                         - containers
                         type: object
                     type: object
+                    x-kubernetes-validations:
+                    - message: userPodTemplate is immutable
+                      rule: self == oldSelf
                 type: object
               maxRestarts:
                 description: Maximum number of times the JobSet is restarted.
                 format: int32
                 type: integer
+                x-kubernetes-validations:
+                - message: maxRestarts is immutable
+                  rule: self == oldSelf
               pathwaysDir:
                 description: |-
                   PathwaysDir is a persistent GCS location at which temporary
                   Pathways artifacts can be stored like HBM state during interruptions.
                   Currently, Pathways supports a precreated GCS directory only.
                 type: string
+                x-kubernetes-validations:
+                - message: pathwaysDir is immutable
+                  rule: self == oldSelf
               pathwaysVersion:
                 description: |-
                   PathwaysVersion is the version of the Pathways cluster.
                   This indicates the version of the Pathways RM, Proxy and Workers.
                 type: string
+                x-kubernetes-validations:
+                - message: pathwaysVersion is immutable
+                  rule: self == oldSelf
               workers:
                 description: |-
                   The list of worker types created for the Pathways Job. Currently only
@@ -8101,7 +8130,11 @@ spec:
                   - topology
                   - type
                   type: object
+                maxItems: 1
                 type: array
+                x-kubernetes-validations:
+                - message: workers are immutable
+                  rule: self == oldSelf
             required:
             - controller
             - workers
@@ -8116,107 +8149,72 @@ spec:
                   One of - Pending, Running, Suspended, Completed, Failed.
                   Contains a human readable message to provide additional details to the
                   user. Conditions are mentioned in PathwaysConditionType.
-                items:
-                  description: "Condition contains details for one aspect of the current
-                    state of this API Resource.\n---\nThis struct is intended for
-                    direct use as an array at the field path .status.conditions.  For
-                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
-                    observations of a foo's current state.\n\t    // Known .status.conditions.type
-                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
-                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
-                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
-                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
-                    \   // other fields\n\t}"
-                  properties:
-                    lastTransitionTime:
-                      description: |-
-                        lastTransitionTime is the last time the condition transitioned from one status to another.
-                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
-                      format: date-time
-                      type: string
-                    message:
-                      description: |-
-                        message is a human readable message indicating details about the transition.
-                        This may be an empty string.
-                      maxLength: 32768
-                      type: string
-                    observedGeneration:
-                      description: |-
-                        observedGeneration represents the .metadata.generation that the condition was set based upon.
-                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
-                        with respect to the current state of the instance.
-                      format: int64
-                      minimum: 0
-                      type: integer
-                    reason:
-                      description: |-
-                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
-                        Producers of specific condition types may define expected values and meanings for this field,
-                        and whether the values are considered a guaranteed API.
-                        The value should be a CamelCase string.
-                        This field may not be empty.
-                      maxLength: 1024
-                      minLength: 1
-                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
-                      type: string
-                    status:
-                      description: status of the condition, one of True, False, Unknown.
-                      enum:
-                      - "True"
-                      - "False"
-                      - Unknown
-                      type: string
-                    type:
-                      description: |-
-                        type of condition in CamelCase or in foo.example.com/CamelCase.
-                        ---
-                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
-                        useful (see .node.status.conditions), the ability to deconflict is important.
-                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
-                      maxLength: 316
-                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
-                      type: string
-                  required:
-                  - lastTransitionTime
-                  - message
-                  - reason
-                  - status
-                  - type
-                  type: object
-                type: array
-              controllerStatus:
-                description: |-
-                  Tracks the  of the Pathways controller -
-                  1. derived from "leader" replicatedJob in colocated mode
-                  (leader job contains "rm", "proxy" and "user" as containers)
-                  2. derived from "rm" and "proxy" replicatedJobs in
-                  default + headless mode.
-                  3. derived from "rm", "proxy" and "user-job" replicatedJobs in
-                  default + container mode.
-                type: string
-              workersStatus:
-                description: Track the  of the Pathways TPU workers -
                 properties:
-                  aggregateWorkersStatus:
+                  lastTransitionTime:
                     description: |-
-                      Status aggregated over all TPU slices.
-                      One of - Pending, Running, Suspended, Completed, Failed.
+                      lastTransitionTime is the last time the condition transitioned from one status to another.
+                      This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                    format: date-time
                     type: string
-                  workersSliceStatus:
-                    description: Status details on each TPU worker slice
-                    items:
-                      description: Job Status in JobSet
-                      properties:
-                        ready:
-                          description: Number of workers in the slice that are ready.
-                          format: int32
-                          type: integer
-                        sliceStatus:
-                          description: Individual TPU slice's status.
-                          type: string
-                      type: object
-                    type: array
+                  message:
+                    description: |-
+                      message is a human readable message indicating details about the transition.
+                      This may be an empty string.
+                    maxLength: 32768
+                    type: string
+                  observedGeneration:
+                    description: |-
+                      observedGeneration represents the .metadata.generation that the condition was set based upon.
+                      For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                      with respect to the current state of the instance.
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  reason:
+                    description: |-
+                      reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                      Producers of specific condition types may define expected values and meanings for this field,
+                      and whether the values are considered a guaranteed API.
+                      The value should be a CamelCase string.
+                      This field may not be empty.
+                    maxLength: 1024
+                    minLength: 1
+                    pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                    type: string
+                  status:
+                    description: status of the condition, one of True, False, Unknown.
+                    enum:
+                    - "True"
+                    - "False"
+                    - Unknown
+                    type: string
+                  type:
+                    description: |-
+                      type of condition in CamelCase or in foo.example.com/CamelCase.
+                      ---
+                      Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
+                      useful (see .node.status.conditions), the ability to deconflict is important.
+                      The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                    maxLength: 316
+                    pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                    type: string
+                required:
+                - lastTransitionTime
+                - message
+                - reason
+                - status
+                - type
                 type: object
+              restarts:
+                description: Restarts tracks the number of times the PathwaysJob has
+                  restarted.
+                format: int32
+                type: integer
+              terminalState:
+                description: |-
+                  TerminalState the state of the PathwaysJob when it finishes execution.
+                  It can be either Complete or Failed. Otherwise, it is empty by default.
+                type: string
             type: object
         type: object
     served: true

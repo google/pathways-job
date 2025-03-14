@@ -63,6 +63,7 @@ var WorkerTypeToTPUVersionMap = map[string]string{
 }
 
 // Allowed topologies for each worker type
+// ToDo(roshanin): cater to 8t machine types also
 var ValidTpuTopologiesMap = map[string][]string{
 	"tpu-v6e-slice": {
 		"1x1", "2x2", "2x4", "4x4", "4x8", "8x8", "8x16", "16x16",
@@ -132,7 +133,7 @@ func (r *PathwaysJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	} else if childJobSet != nil {
 		log.Info("PathwaysJob: JobSet exists, not creating")
 		// 2.2 Find out JobSet's status
-		r.findJobSetStatus(ctx, childJobSet)
+		r.setPathwaysJobStatusBasedOnJobSetStatus(ctx, pw, childJobSet)
 		return ctrl.Result{}, nil
 	}
 
@@ -145,7 +146,7 @@ func (r *PathwaysJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	//4. Update the object's status using Conditions (?)
 	childJobSet, _ = r.getChildJobSet(ctx, pw, jobSetClient)
-	r.findJobSetStatus(ctx, childJobSet)
+	r.setPathwaysJobStatusBasedOnJobSetStatus(ctx, pw, childJobSet)
 
 	//5. Return a result
 	log.Info("PathwaysJob: DONE DONE DONE!")
@@ -201,6 +202,9 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 			Namespace: pw.GetNamespace(),
 		},
 		Spec: jobsetv1alpha2.JobSetSpec{
+			StartupPolicy: &jobsetv1alpha2.StartupPolicy{
+				StartupPolicyOrder: jobsetv1alpha2.InOrder,
+			},
 			FailurePolicy: &jobsetv1alpha2.FailurePolicy{
 				MaxRestarts: pw.Spec.MaxRestarts,
 			},
@@ -240,20 +244,85 @@ func (r *PathwaysJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // Find the status of the underlying JobSet for 'colocated' or 'default' deployment modes.
-func (r *PathwaysJobReconciler) findJobSetStatus(ctx context.Context, js *jobsetv1alpha2.JobSet) {
-	log := ctrl.LoggerFrom(ctx)
-	log.Info("PathwaysJob findJobSetStatus", "Jobset name", js.ObjectMeta.Name)
+func (r *PathwaysJobReconciler) setPathwaysJobStatusBasedOnJobSetStatus(ctx context.Context, pw *pathwaysjob.PathwaysJob, js *jobsetv1alpha2.JobSet) {
+	log4 := ctrl.LoggerFrom(ctx)
+
+	if len(js.Status.Conditions) == 0 && pw.Status.Condition.Type != string(pathwaysjob.PathwaysJobPendingOrRunning) {
+		pw.Status.Condition = *makePendingOrRunningCondition()
+		log4.Info("PathwaysJob PendingOrRunningCondition.")
+	}
 
 	for _, c := range js.Status.Conditions {
-		log.Info("\n\n PathwaysJob CONDITION", "CONDITION", c.Type, "Status", c.Status, "Message", c.Message)
-		if (c.Type == string(jobsetv1alpha2.JobSetSuspended) || c.Type == string(jobsetv1alpha2.JobSetCompleted) || c.Type == string(jobsetv1alpha2.JobSetFailed)) && c.Status == metav1.ConditionTrue {
-			log.Info("\n\n PathwaysJob: JobSet in TERMINAL STATE", "Condition ", c.Type)
+		if c.Type == string(jobsetv1alpha2.JobSetStartupPolicyCompleted) ||
+			c.Type == string(jobsetv1alpha2.JobSetStartupPolicyInProgress) && c.Status == metav1.ConditionTrue {
+			pw.Status.Condition = *makePendingOrRunningCondition()
+			log4.Info("\n\n PathwaysJob setPathwaysJobStatusBasedOnJobSetStatus: START STATE", "Condition ", c.Type, "Status", c.Status, "Reason ", c.Reason, "Message", c.Message)
 		}
-		if (c.Type == string(jobsetv1alpha2.JobSetStartupPolicyCompleted) ||
-			c.Type == string(jobsetv1alpha2.JobSetStartupPolicyInProgress)) && c.Status == metav1.ConditionTrue {
-			log.Info("\n\n PathwaysJob: JobSet in TERMINAL STATE", "Condition ", c.Type)
+
+		// var pathwaysCondition metav1.Condition
+		if c.Type == string(jobsetv1alpha2.JobSetSuspended) && c.Status == metav1.ConditionTrue {
+			pw.Status.Condition = *makeSuspendCondition(c)
+		} else if c.Type == string(jobsetv1alpha2.JobSetCompleted) && c.Status == metav1.ConditionTrue {
+			pw.Status.Condition = *makeCompletedCondition(c)
+			pw.Status.TerminalState = pw.Status.Condition.Type
+		} else if c.Type == string(jobsetv1alpha2.JobSetFailed) && c.Status == metav1.ConditionTrue {
+			pw.Status.Condition = *makeFailedCondition(c)
+			pw.Status.TerminalState = pw.Status.Condition.Type
+		}
+
+		if (c.Type == string(jobsetv1alpha2.JobSetCompleted) || c.Type == string(jobsetv1alpha2.JobSetFailed)) && c.Status == metav1.ConditionTrue {
+			log4.Info("PathwaysJob setPathwaysJobStatusBasedOnJobSetStatus: TERMINAL state", "JobSet condition type ", c.Type, "Reason ", c.Reason, "Message", c.Message, "Pathways condition type", pw.Status.Condition.Type, "Pathways TerminalState", pw.Status.TerminalState)
 		}
 	}
+
+	// for _, cp := range pw.Status.Conditions {
+	// 	log4.Info("PathwaysJob setPathwaysJobStatusBasedOnJobSetStatus: Showing all states so far", "Pathways condition type ", cp.Type, "Status", cp.Status, "Reason ", cp.Reason, "Message", cp.Message, "Pathways TerminalState", pw.Status.TerminalState)
+
+	// }
+
+	// for _, j := range js.Status.ReplicatedJobsStatus {
+	// 	log4.Info("PathwaysJob findJobSetStatus replicatedJobStatus ", "Name", j.Name, "Ready", j.Ready, "Succeeded", j.Succeeded, "Failed", j.Failed, "Active", j.Active, "Suspended", j.Suspended)
+	// }
+}
+
+func makeSuspendCondition(jsCondition metav1.Condition) *metav1.Condition {
+	suspendCondition := metav1.Condition{
+		Type:    string(pathwaysjob.PathwaysJobSuspended),
+		Status:  jsCondition.Status,
+		Reason:  jsCondition.Reason,
+		Message: "pathwaysJob:" + jsCondition.Message,
+	}
+	return &suspendCondition
+}
+
+func makeCompletedCondition(jsCondition metav1.Condition) *metav1.Condition {
+	completedCondition := metav1.Condition{
+		Type:    string(pathwaysjob.PathwaysJobCompleted),
+		Status:  jsCondition.Status,
+		Reason:  jsCondition.Reason,
+		Message: "pathwaysJob:" + jsCondition.Message,
+	}
+	return &completedCondition
+}
+
+func makeFailedCondition(jsCondition metav1.Condition) *metav1.Condition {
+	failedCondition := metav1.Condition{
+		Type:    string(pathwaysjob.PathwaysJobFailed),
+		Status:  jsCondition.Status,
+		Reason:  jsCondition.Reason,
+		Message: "pathwaysJob:" + jsCondition.Message,
+	}
+	return &failedCondition
+}
+
+func makePendingOrRunningCondition() *metav1.Condition {
+	pendingOrRunningCondition := metav1.Condition{
+		Type:    string(pathwaysjob.PathwaysJobPendingOrRunning),
+		Status:  metav1.ConditionTrue,
+		Reason:  "PathwaysJob Pending or Running",
+		Message: "pathwaysJob: jobSet for is getting created or running.",
+	}
+	return &pendingOrRunningCondition
 }
 
 // ---------------------- PATHWAYS HELPERS --------------------------
@@ -286,8 +355,8 @@ func calculateVMsFromTopology(topology string) int32 {
 		chips *= num
 	}
 	vms := 1
-	chipsperVM := 4 // ToDo (roshanin): Add support for VMs with 8 chips per host.
-	if chips >= chipsperVM {
+	chipsperVM := 4          // ToDo (roshanin): Add support for VMs with 8 chips per host.
+	if chips >= chipsperVM { // addresses smaller topologies like tpu-v6e-slice 1x1
 		vms = chips / chipsperVM
 	}
 	return int32(vms)
@@ -334,13 +403,13 @@ func MakeSuccessPolicy(pw *pathwaysjob.PathwaysJob) *jobsetv1alpha2.SuccessPolic
 
 // Constructs the Pathways resource manager container spec for the underlying JobSet
 func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, rmJobName string) (*corev1.Container, error) {
-	truth := true
+	// truth := true
 
 	rmContainerSpec := corev1.Container{
 		Name:            "pathways-rm",
 		Image:           fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:%s", makeImageTagUsingPathwaysVersion(pw)),
 		ImagePullPolicy: "Always",
-		SecurityContext: &corev1.SecurityContext{Privileged: &truth},
+		// SecurityContext: &corev1.SecurityContext{Privileged: &truth},
 		Args: []string{
 			"--server_port=29001",
 			fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
@@ -351,6 +420,7 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, rmJobName string)
 		Env: []corev1.EnvVar{
 			{Name: "REPLICATED_JOB_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/replicatedjob-name']"}}},
 			{Name: "JOBSET_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/jobset-name']"}}},
+			// {Name: "HOST_ADDRESS", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.labels['jobset.sigs.k8s.io/coordinator']"}}},
 			{Name: "HOST_ADDRESS", Value: fmt.Sprintf("%s-%s-0-0.%s", pw.GetName(), rmJobName, pw.GetName())},
 			{Name: "TPU_SKIP_MDS_QUERY", Value: "true"},
 		},
@@ -362,13 +432,13 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, rmJobName string)
 
 // Constructs the Pathways proxy container spec for the underlying JobSet
 func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, rmJobName string) (*corev1.Container, error) {
-	truth := true
+	// truth := true
 
 	proxyContainerSpec := corev1.Container{
 		Name:            "pathways-proxy",
 		Image:           fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/proxy_server:%s", makeImageTagUsingPathwaysVersion(pw)),
 		ImagePullPolicy: "Always",
-		SecurityContext: &corev1.SecurityContext{Privileged: &truth},
+		// SecurityContext: &corev1.SecurityContext{Privileged: &truth},
 		Args: []string{
 			"--server_port=29000",
 			fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:29001", pw.GetName(), rmJobName, pw.GetName()),
@@ -382,7 +452,7 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, rmJobName string) (*corev1.
 
 // Constructs Pathways worker replicated job for both 'colocated' and 'default' deployment modes.
 func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName string) (jobsetv1alpha2.ReplicatedJob, error) {
-	truth := true
+	// truth := true
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
 	objectMeta := metav1.ObjectMeta{}
 
@@ -410,7 +480,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName s
 								Name:            "pathways-worker",
 								Image:           fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:%s", makeImageTagUsingPathwaysVersion(pw)),
 								ImagePullPolicy: "Always",
-								SecurityContext: &corev1.SecurityContext{Privileged: &truth},
+								// SecurityContext: &corev1.SecurityContext{Privileged: &truth},
 								Args: []string{
 									"--server_port=29005",
 									fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:29001", pw.GetName(), rmJobName, pw.GetName()),
@@ -500,10 +570,7 @@ func MakePodAffinityRules(pw *pathwaysjob.PathwaysJob) (*corev1.Affinity, error)
 }
 
 func isUserPodProvided(pw *pathwaysjob.PathwaysJob) bool {
-	if pw.Spec.Controller.UserPodTemplate != nil {
-		return true
-	}
-	return false
+	return pw.Spec.Controller.UserPodTemplate != nil
 }
 
 // Get the containers (main workload and any sidecars) from the user's pod spec.
@@ -513,7 +580,7 @@ func GetUserContainerList(pw *pathwaysjob.PathwaysJob) ([]corev1.Container, erro
 	if isUserPodProvided(pw) {
 		return pw.Spec.Controller.UserPodTemplate.Spec.Containers, nil
 	}
-	return nil, fmt.Errorf("no user pod provided, probably headless mode.")
+	return nil, fmt.Errorf("no user pod provided, probably headless mode")
 }
 
 // Construct the "leader" replicated job containing the Pathways RM, Pathways Proxy and User job
