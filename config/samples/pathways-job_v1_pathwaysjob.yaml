@@ -15,7 +15,7 @@
 apiVersion: pathways-job.pathways.domain/v1
 kind: PathwaysJob
 metadata:
-  name: pathways-trial88
+  name: pathways-trial202
 spec:
   maxRestarts: 2
   workers:
@@ -39,8 +39,8 @@ spec:
           - name: JAX_PLATFORMS
             value: proxy
           - name: JAX_BACKEND_TARGET
-            value: grpc://pathways-trial88-proxy-0-0.pathways-trial88:29008
-          image: us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/maxtext_jax_stable:latest
+            value: grpc://pathways-trial202-proxy-0-0.pathways-trial202:29008
+          image: us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/maxtext_jax_stable:roshanin
           imagePullPolicy: Always
           command:
             - bash
@@ -75,7 +75,7 @@ spec:
     #       - name: JAX_PLATFORMS
     #         value: proxy
     #       - name: JAX_BACKEND_TARGET
-    #         value: grpc://pathways-trial80-leader-0-0.pathways-trial80:29008
+    #         value: grpc://pathways-trial202-leader-0-0.pathways-trial202:29008
     #       command:
     #         - bash
     #         - -c

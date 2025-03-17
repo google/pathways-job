@@ -204,7 +204,7 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 		Spec: jobsetv1alpha2.JobSetSpec{
 			StartupPolicy: &jobsetv1alpha2.StartupPolicy{
 				StartupPolicyOrder: jobsetv1alpha2.InOrder,
-			},
+			}, // create jobs in the order specified in JobSet.
 			FailurePolicy: &jobsetv1alpha2.FailurePolicy{
 				MaxRestarts: pw.Spec.MaxRestarts,
 			},
@@ -243,20 +243,23 @@ func (r *PathwaysJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+// ---------------------- PATHWAYS HELPERS --------------------------
+
 // Find the status of the underlying JobSet for 'colocated' or 'default' deployment modes.
 func (r *PathwaysJobReconciler) setPathwaysJobStatusBasedOnJobSetStatus(ctx context.Context, pw *pathwaysjob.PathwaysJob, js *jobsetv1alpha2.JobSet) {
-	log4 := ctrl.LoggerFrom(ctx)
+	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
+	ctx = ctrl.LoggerInto(ctx, log)
 
 	if len(js.Status.Conditions) == 0 && pw.Status.Condition.Type != string(pathwaysjob.PathwaysJobPendingOrRunning) {
 		pw.Status.Condition = *makePendingOrRunningCondition()
-		log4.Info("PathwaysJob PendingOrRunningCondition.")
+		log.Info("PathwaysJob PendingOrRunningCondition.")
 	}
 
 	for _, c := range js.Status.Conditions {
 		if c.Type == string(jobsetv1alpha2.JobSetStartupPolicyCompleted) ||
 			c.Type == string(jobsetv1alpha2.JobSetStartupPolicyInProgress) && c.Status == metav1.ConditionTrue {
 			pw.Status.Condition = *makePendingOrRunningCondition()
-			log4.Info("\n\n PathwaysJob setPathwaysJobStatusBasedOnJobSetStatus: START STATE", "Condition ", c.Type, "Status", c.Status, "Reason ", c.Reason, "Message", c.Message)
+			log.Info("\n\n PathwaysJob setPathwaysJobStatusBasedOnJobSetStatus: START STATE", "Condition ", pw.Status.Condition.Type, "Status", pw.Status.Condition.Status, "Reason ", pw.Status.Condition.Reason, "Message", pw.Status.Condition.Message)
 		}
 
 		// var pathwaysCondition metav1.Condition
@@ -271,61 +274,63 @@ func (r *PathwaysJobReconciler) setPathwaysJobStatusBasedOnJobSetStatus(ctx cont
 		}
 
 		if (c.Type == string(jobsetv1alpha2.JobSetCompleted) || c.Type == string(jobsetv1alpha2.JobSetFailed)) && c.Status == metav1.ConditionTrue {
-			log4.Info("PathwaysJob setPathwaysJobStatusBasedOnJobSetStatus: TERMINAL state", "JobSet condition type ", c.Type, "Reason ", c.Reason, "Message", c.Message, "Pathways condition type", pw.Status.Condition.Type, "Pathways TerminalState", pw.Status.TerminalState)
+			log.Info("PathwaysJob setPathwaysJobStatusBasedOnJobSetStatus: TERMINAL state", "JobSet condition type ", c.Type, "Reason ", c.Reason, "Message", c.Message, "Pathways condition type", pw.Status.Condition.Type, "Pathways TerminalState", pw.Status.TerminalState)
 		}
 	}
 
 	// for _, cp := range pw.Status.Conditions {
-	// 	log4.Info("PathwaysJob setPathwaysJobStatusBasedOnJobSetStatus: Showing all states so far", "Pathways condition type ", cp.Type, "Status", cp.Status, "Reason ", cp.Reason, "Message", cp.Message, "Pathways TerminalState", pw.Status.TerminalState)
+	// 	log.Info("PathwaysJob setPathwaysJobStatusBasedOnJobSetStatus: Showing all states so far", "Pathways condition type ", cp.Type, "Status", cp.Status, "Reason ", cp.Reason, "Message", cp.Message, "Pathways TerminalState", pw.Status.TerminalState)
 
 	// }
 
 	// for _, j := range js.Status.ReplicatedJobsStatus {
-	// 	log4.Info("PathwaysJob findJobSetStatus replicatedJobStatus ", "Name", j.Name, "Ready", j.Ready, "Succeeded", j.Succeeded, "Failed", j.Failed, "Active", j.Active, "Suspended", j.Suspended)
+	// 	log.Info("PathwaysJob findJobSetStatus replicatedJobStatus ", "Name", j.Name, "Ready", j.Ready, "Succeeded", j.Succeeded, "Failed", j.Failed, "Active", j.Active, "Suspended", j.Suspended)
 	// }
 }
 
+// Construct the Suspended condition for PathwaysJob
 func makeSuspendCondition(jsCondition metav1.Condition) *metav1.Condition {
 	suspendCondition := metav1.Condition{
 		Type:    string(pathwaysjob.PathwaysJobSuspended),
 		Status:  jsCondition.Status,
 		Reason:  jsCondition.Reason,
-		Message: "pathwaysJob:" + jsCondition.Message,
+		Message: "pathwaysJob suspended:" + jsCondition.Message,
 	}
 	return &suspendCondition
 }
 
+// Construct the Completed condition for PathwaysJob
 func makeCompletedCondition(jsCondition metav1.Condition) *metav1.Condition {
 	completedCondition := metav1.Condition{
 		Type:    string(pathwaysjob.PathwaysJobCompleted),
 		Status:  jsCondition.Status,
 		Reason:  jsCondition.Reason,
-		Message: "pathwaysJob:" + jsCondition.Message,
+		Message: "pathwaysJob completed:" + jsCondition.Message,
 	}
 	return &completedCondition
 }
 
+// Construct the Failed condition for PathwaysJob
 func makeFailedCondition(jsCondition metav1.Condition) *metav1.Condition {
 	failedCondition := metav1.Condition{
 		Type:    string(pathwaysjob.PathwaysJobFailed),
 		Status:  jsCondition.Status,
 		Reason:  jsCondition.Reason,
-		Message: "pathwaysJob:" + jsCondition.Message,
+		Message: "pathwaysJob failed:" + jsCondition.Message,
 	}
 	return &failedCondition
 }
 
+// Construct the Pending or Running condition for PathwaysJob
 func makePendingOrRunningCondition() *metav1.Condition {
 	pendingOrRunningCondition := metav1.Condition{
 		Type:    string(pathwaysjob.PathwaysJobPendingOrRunning),
 		Status:  metav1.ConditionTrue,
 		Reason:  "PathwaysJob Pending or Running",
-		Message: "pathwaysJob: jobSet for is getting created or running.",
+		Message: "pathwaysJob pending or running: jobSet for is getting created or running.",
 	}
 	return &pendingOrRunningCondition
 }
-
-// ---------------------- PATHWAYS HELPERS --------------------------
 
 // Find TPU version from the worker's type (- used to determine Pathways instance_type)
 func constructTPUVersionFromWorkerType(tpuGKEAcceleratorType pathwaysjob.WorkerType) string {
@@ -667,13 +672,13 @@ func MakeJobsForDefaultDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJ
 						},
 						HostNetwork: true,                              // For performance == McJAX
 						DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
-						Tolerations: []corev1.Toleration{
-							{
-								Key:      "google.com/tpu",
-								Operator: "Exists",
-								Effect:   "NoSchedule",
-							},
-						},
+						// Tolerations: []corev1.Toleration{
+						// 	{
+						// 		Key:      "google.com/tpu",
+						// 		Operator: "Exists",
+						// 		Effect:   "NoSchedule",
+						// 	},
+						// },
 						Volumes: []corev1.Volume{
 							{
 								Name: "shared-tmp",
@@ -708,13 +713,13 @@ func MakeJobsForDefaultDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJ
 						},
 						HostNetwork: true,                              // For performance == McJAX
 						DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
-						Tolerations: []corev1.Toleration{
-							{
-								Key:      "google.com/tpu",
-								Operator: "Exists",
-								Effect:   "NoSchedule",
-							},
-						},
+						// Tolerations: []corev1.Toleration{
+						// 	{
+						// 		Key:      "google.com/tpu",
+						// 		Operator: "Exists",
+						// 		Effect:   "NoSchedule",
+						// 	},
+						// },
 						Volumes: []corev1.Volume{
 							{
 								Name: "shared-tmp",
@@ -756,13 +761,13 @@ func MakeJobsForDefaultDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJ
 							},
 							HostNetwork: true,                              // For performance == McJAX
 							DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
-							Tolerations: []corev1.Toleration{ // tolerations are important here to not run this job on TPUs
-								{
-									Key:      "google.com/tpu",
-									Operator: "Exists",
-									Effect:   "NoSchedule",
-								},
-							},
+							// Tolerations: []corev1.Toleration{ // tolerations are important here to not run this job on TPUs
+							// 	{
+							// 		Key:      "google.com/tpu",
+							// 		Operator: "Exists",
+							// 		Effect:   "NoSchedule",
+							// 	},
+							// },
 							Volumes: []corev1.Volume{
 								{
 									Name: "shared-tmp",

@@ -24,8 +24,8 @@ import (
 // PathwaysJob is the Schema for the PathwaysJobs API
 // Print column specifies the details seen on kubectl get pathwaysjob
 // +kubebuilder:object:root=true
-// +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced
+// +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="TerminalState",JSONPath=".status.terminalState",type=string,description="Final state of PathwaysJob"
 // +kubebuilder:printcolumn:name="Status",type="string",priority=0,JSONPath=".status.condition.type"
 // +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type=date,description="Time this PathwaysJob was created"
@@ -67,13 +67,9 @@ type PathwaysJobSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="pathwaysDir is immutable"
 	PathwaysDir string `json:"pathwaysDir,omitempty"`
 
-<<<<<<< HEAD
 	// PathwaysVersion is the version of the Pathways cluster.
 	// This indicates the version of the Pathways RM, Proxy and Workers.
-=======
-	// PathwaysVersion is the version of the Pathways client.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="pathwaysVersion is immutable"
->>>>>>> 74b6330 (Simplify topology, status tracking for reconciliation.)
 	PathwaysVersion string `json:"pathwaysVersion,omitempty"`
 
 	// The list of worker types created for the Pathways Job. Currently only
@@ -149,7 +145,7 @@ type PathwaysJobStatus struct {
 	// Contains a human readable message to provide additional details to the
 	// user. Conditions are mentioned in PathwaysConditionType.
 	// +optional
-	Condition metav1.Condition `json:"conditions,omitempty"`
+	Condition metav1.Condition `json:"condition,omitempty"`
 
 	// Restarts tracks the number of times the PathwaysJob has restarted.
 	Restarts int32 `json:"restarts,omitempty"`
