@@ -37,7 +37,7 @@ spec:
           - name: JAX_PLATFORMS
             value: proxy
           - name: JAX_BACKEND_TARGET
-            value: grpc://pathways-trial-proxy-0-0.pathways-trial:29008
+            value: grpc://pathways-trial-proxy-0-0.pathways-trial:29000
           image: python:3.13
           imagePullPolicy: Always
           command:

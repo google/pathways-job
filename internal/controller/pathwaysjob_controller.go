@@ -353,11 +353,11 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, rmJobName string) (*corev1.
 		ImagePullPolicy: "Always",
 		SecurityContext: &corev1.SecurityContext{Privileged: &truth},
 		Args: []string{
-			"--server_port=29008",
+			"--server_port=29000",
 			fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:29001", pw.GetName(), rmJobName, pw.GetName()),
 			fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
 		},
-		Ports: []corev1.ContainerPort{{ContainerPort: 29008}},
+		Ports: []corev1.ContainerPort{{ContainerPort: 29000}},
 		// Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(100000000000, resource.DecimalSI)}}, //100GiB
 	}
 	return &proxyContainerSpec, nil
