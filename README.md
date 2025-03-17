@@ -19,7 +19,6 @@ The user workload is typically on a Vertex AI notebook, so users can connect to 
 - docker version 17.03+.
 - kubectl version v1.11.3+.
 - Access to a Kubernetes v1.11.3+ cluster.
-- JobSet //ToDo(roshanin) install JobSet
 
 ### To Deploy on the cluster
 **Build and push your image to the location specified by `IMG`:**

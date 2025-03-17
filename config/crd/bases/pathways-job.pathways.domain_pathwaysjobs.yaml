@@ -8058,12 +8058,14 @@ spec:
                 type: integer
               pathwaysDir:
                 description: |-
-                  PathwaysDir is a persistent location like GCS at which temporary
+                  PathwaysDir is a persistent GCS location at which temporary
                   Pathways artifacts can be stored like HBM state during interruptions.
                   Currently, Pathways supports a precreated GCS directory only.
                 type: string
               pathwaysVersion:
-                description: PathwaysVersion is the version of the Pathways client.
+                description: |-
+                  PathwaysVersion is the version of the Pathways cluster.
+                  This indicates the version of the Pathways RM, Proxy and Workers.
                 type: string
               workers:
                 description: |-

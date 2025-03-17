@@ -58,7 +58,7 @@ var (
 var WorkerTypeToTPUVersionMap = map[string]string{
 	"tpu-v6e-slice":        "tpuv6e",
 	"tpu-v5p-slice":        "tpuv5",
-	"tpu-v5-lite-podslice": "tpuv5",
+	"tpu-v5-lite-podslice": "tpuv5e",
 	"tpu-v4-podslice":      "tpuv4",
 }
 
@@ -153,11 +153,10 @@ func (r *PathwaysJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 }
 
 func (r *PathwaysJobReconciler) getChildJobSet(ctx context.Context, pw *pathwaysjob.PathwaysJob, jobSetClient *jobsetclient.Clientset) (*jobsetv1alpha2.JobSet, error) {
-	log3 := ctrl.LoggerFrom(ctx)
-	// .WithValues("pathwaysjob", klog.KObj(pw))
-	// ctx = ctrl.LoggerInto(ctx, log3)
+	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
+	ctx = ctrl.LoggerInto(ctx, log)
 
-	log3.Info("PathwaysJob: in getChildJobSet", "Name ", pw.GetName(), "Namespace ", pw.GetNamespace())
+	log.Info("PathwaysJob: in getChildJobSet", "Name ", pw.GetName(), "Namespace ", pw.GetNamespace())
 
 	var js *jobsetv1alpha2.JobSet
 	js, err := jobSetClient.JobsetV1alpha2().JobSets(pw.GetObjectMeta().GetNamespace()).Get(ctx, pw.GetName(), metav1.GetOptions{})
@@ -169,21 +168,20 @@ func (r *PathwaysJobReconciler) getChildJobSet(ctx context.Context, pw *pathways
 
 // Create the JobSet for 'colocated' or 'default' deployment modes.
 func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjob.PathwaysJob, jobSetClient *jobsetclient.Clientset) error {
-	log2 := ctrl.LoggerFrom(ctx)
-	// .WithValues("pathwaysjob", klog.KObj(pw))
-	// ctx = ctrl.LoggerInto(ctx, log2)
+	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
+	ctx = ctrl.LoggerInto(ctx, log)
 
-	log2.Info("PathwaysJob: in createJobSet", "Name ", pw.GetName(), "Namespace ", pw.GetNamespace())
+	log.Info("PathwaysJob: in createJobSet", "Name ", pw.GetName(), "Namespace ", pw.GetNamespace())
 
 	var jobs []jobsetv1alpha2.ReplicatedJob
 	var rmJobName string
 
 	err := calculateTPUInfo(ctx, pw)
 	if err != nil {
-		log2.Info("PathwaysJob: in createJobSet calculateTPUInfo ", " Error: ", err)
+		log.Info("PathwaysJob: in createJobSet calculateTPUInfo ", " Error: ", err)
 		return err
 	} else {
-		log2.Info("PathwaysJob: in createJobSet calculateTPUInfo ", "TPUVersion", TPUVersion, "TPUTopology", TPUTopology, "InstanceType", InstanceType, "NumVMs", NumVMs)
+		log.Info("PathwaysJob: in createJobSet calculateTPUInfo ", "TPUVersion", TPUVersion, "TPUTopology", TPUTopology, "InstanceType", InstanceType, "NumVMs", NumVMs)
 	}
 	// Pathways Spec + JobSet for training or batch inference ------
 	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Colocate {
@@ -212,9 +210,9 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 
 	// Set Pathways controller as the owner of the JobSet for garbage collection.
 	if err := ctrl.SetControllerReference(pw, &mainJobSetConfig, r.Scheme); err != nil {
-		log2.Info("PathwaysJob: failed to set Pathways as owner of JobSet.", "error ", err)
+		log.Info("PathwaysJob: failed to set Pathways as owner of JobSet.", "error ", err)
 	} else {
-		log2.Info("PathwaysJob: successfully set Pathways as owner of JobSet.")
+		log.Info("PathwaysJob: successfully set Pathways as owner of JobSet.")
 	}
 
 	js, err := jobSetClient.JobsetV1alpha2().JobSets(pw.GetObjectMeta().GetNamespace()).Create(ctx, &mainJobSetConfig, metav1.CreateOptions{})
@@ -222,7 +220,7 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 	if err != nil {
 		return err
 	} else {
-		log2.Info("PathwaysJob: successfully created JobSet: ", "JobSet name", js.Name)
+		log.Info("PathwaysJob: successfully created JobSet: ", "JobSet name", js.Name)
 	}
 	return nil
 }
@@ -278,17 +276,15 @@ func validateTPUTopologyWithWorkerType(ctx context.Context, tpuGKEAcceleratorTyp
 // Calculate the number of VMs based on the Topology (- used in completions/parallelisms)
 func calculateVMsFromTopology(topology string) int32 {
 	parts := strings.Split(topology, "x") // Examples - 2x2x4 or 4x4
-	if len(parts) < 2 {
-		return 0
-	}
 	// Calculate the number of chips based on the Topology.
+	// The topology must have already been validated with the worker type.
 	chips := 1
 	for _, part := range parts {
 		num, _ := strconv.Atoi(part)
 		chips *= num
 	}
 	vms := 1
-	chipsperVM := 4
+	chipsperVM := 4 // ToDo (roshanin): Add support for VMs with 8 chips per host.
 	if chips >= chipsperVM {
 		vms = chips / chipsperVM
 	}
@@ -308,13 +304,24 @@ func calculateTPUInfo(ctx context.Context, pw *pathwaysjob.PathwaysJob) error {
 	return nil
 }
 
+// Construct image tag based on Pathways version
+func makeImageTagUsingPathwaysVersion(pw *pathwaysjob.PathwaysJob) string {
+	var tag string
+	if pw.Spec.PathwaysVersion != "" {
+		tag = string(pw.Spec.PathwaysVersion)
+	} else {
+		tag = "latest"
+	}
+	return tag
+}
+
 // Constructs the Pathways resource manager container spec for the underlying JobSet
 func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, rmJobName string) (*corev1.Container, error) {
 	truth := true
 
 	rmContainerSpec := corev1.Container{
 		Name:            "pathways-rm",
-		Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/sanitized_server:latest",
+		Image:           fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:%s", makeImageTagUsingPathwaysVersion(pw)),
 		ImagePullPolicy: "Always",
 		SecurityContext: &corev1.SecurityContext{Privileged: &truth},
 		Args: []string{
@@ -342,7 +349,7 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, rmJobName string) (*corev1.
 
 	proxyContainerSpec := corev1.Container{
 		Name:            "pathways-proxy",
-		Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/sanitized_proxy_server:latest",
+		Image:           fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/proxy_server:%s", makeImageTagUsingPathwaysVersion(pw)),
 		ImagePullPolicy: "Always",
 		SecurityContext: &corev1.SecurityContext{Privileged: &truth},
 		Args: []string{
@@ -360,6 +367,15 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, rmJobName string) (*corev1.
 func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName string) (jobsetv1alpha2.ReplicatedJob, error) {
 	truth := true
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
+	objectMeta := metav1.ObjectMeta{}
+
+	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Default {
+		objectMeta = metav1.ObjectMeta{
+			Annotations: map[string]string{
+				"alpha.jobset.sigs.k8s.io/exclusive-topology": "cloud.google.com/gke-nodepool",
+			},
+		}
+	}
 
 	workerJob := jobsetv1alpha2.ReplicatedJob{
 		Name:     "worker",
@@ -370,11 +386,12 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName s
 				Completions:  ptr.To(int32(NumVMs)), // number of workers remember to change
 				Parallelism:  ptr.To(int32(NumVMs)), // number of workers  remember to change
 				Template: corev1.PodTemplateSpec{
+					ObjectMeta: objectMeta,
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
 							{
 								Name:            "pathways-worker",
-								Image:           "us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/sanitized_server:latest",
+								Image:           fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:%s", makeImageTagUsingPathwaysVersion(pw)),
 								ImagePullPolicy: "Always",
 								SecurityContext: &corev1.SecurityContext{Privileged: &truth},
 								Args: []string{
@@ -549,6 +566,10 @@ func MakeJobsForDefaultDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJ
 				Parallelism:  ptr.To(int32(1)),
 				Template: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
+						NodeSelector: map[string]string{ // predictably place RM on CPUs
+							"cloud.google.com/machine-family":  "n2",
+							"node.kubernetes.io/instance-type": "n2-standard-64",
+						},
 						HostNetwork: true,                              // For performance == McJAX
 						DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
 						Tolerations: []corev1.Toleration{
@@ -586,6 +607,10 @@ func MakeJobsForDefaultDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJ
 				Parallelism:  ptr.To(int32(1)),
 				Template: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
+						NodeSelector: map[string]string{ // predictably place RM on CPUs
+							"cloud.google.com/machine-family":  "n2",
+							"node.kubernetes.io/instance-type": "n2-standard-64",
+						},
 						HostNetwork: true,                              // For performance == McJAX
 						DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
 						Tolerations: []corev1.Toleration{
@@ -629,6 +654,10 @@ func MakeJobsForDefaultDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJ
 					// },
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
+							NodeSelector: map[string]string{ // predictably place RM on CPUs
+								"cloud.google.com/machine-family":  "n2",
+								"node.kubernetes.io/instance-type": "n2-standard-64",
+							},
 							HostNetwork: true,                              // For performance == McJAX
 							DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
 							Tolerations: []corev1.Toleration{ // tolerations are important here to not run this job on TPUs

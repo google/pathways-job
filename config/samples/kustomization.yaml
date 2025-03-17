@@ -14,5 +14,5 @@
 
 ## Append samples of your project ##
 resources:
-- pathways-api_v1_pathwaysjob.yaml
+- pathways-job_v1_pathwaysjob.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

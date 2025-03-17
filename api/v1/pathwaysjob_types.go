@@ -61,12 +61,13 @@ type PathwaysJobSpec struct {
 	// Maximum number of times the JobSet is restarted.
 	MaxRestarts int32 `json:"maxRestarts,omitempty"`
 
-	// PathwaysDir is a persistent location like GCS at which temporary
+	// PathwaysDir is a persistent GCS location at which temporary
 	// Pathways artifacts can be stored like HBM state during interruptions.
 	// Currently, Pathways supports a precreated GCS directory only.
 	PathwaysDir string `json:"pathwaysDir,omitempty"`
 
-	// PathwaysVersion is the version of the Pathways client.
+	// PathwaysVersion is the version of the Pathways cluster.
+	// This indicates the version of the Pathways RM, Proxy and Workers.
 	PathwaysVersion string `json:"pathwaysVersion,omitempty"`
 
 	// The list of worker types created for the Pathways Job. Currently only
