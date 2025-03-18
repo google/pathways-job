@@ -8112,18 +8112,21 @@ spec:
                       type: integer
                     topology:
                       description: |-
-                        This will translate to a nodeSelector of the form
+                        Topology will translate to a nodeSelector of the form
                         cloud.google.com/gke-tpu-topology:2x2
                       type: string
                     type:
                       description: |-
-                        This will translate to a nodeSelector of the form
+                        MachineType is GKE machine type.
+                        It will translate to a nodeSelector of the form
                         cloud.google.com/gke-tpu-accelerator: tpu-v5-lite-podslice
                       enum:
-                      - tpu-v4-podslice
-                      - tpu-v5p-slice
-                      - tpu-v5-lite-podslice
-                      - tpu-v6e-slice
+                      - ct6e-standard-4t
+                      - ct6e-standard-8t
+                      - ct5p-hightpu-4t
+                      - ct5lp-hightpu-4t
+                      - ct5lp-hightpu-8t
+                      - ct4p-hightpu-4t
                       type: string
                   required:
                   - numSlices
@@ -8142,13 +8145,13 @@ spec:
           status:
             description: PathwaysJobStatus defines the observed state of PathwaysJob
             properties:
-              conditions:
+              condition:
                 description: |-
                   Aggregate  of the PathwaysJob workload, based on worker and
                   controller statuses.
-                  One of - Pending, Running, Suspended, Completed, Failed.
+                  One of - Pending or Running, Suspended, Completed, Failed.
                   Contains a human readable message to provide additional details to the
-                  user. Conditions are mentioned in PathwaysConditionType.
+                  user. Condition are mentioned in PathwaysConditionType.
                 properties:
                   lastTransitionTime:
                     description: |-

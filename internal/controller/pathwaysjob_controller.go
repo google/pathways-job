@@ -48,27 +48,46 @@ type PathwaysJobReconciler struct {
 
 // Public variables to store TPU information
 var (
-	TPUVersion   string
-	TPUTopology  string
-	InstanceType string
-	NumVMs       int32
+	InstanceType       string
+	NumVMs             int32
+	GKEAcceleratorType string
 )
 
-// Map to convert worker type to Instance type
-var WorkerTypeToTPUVersionMap = map[string]string{
-	"tpu-v6e-slice":        "tpuv6e",
-	"tpu-v5p-slice":        "tpuv5",
-	"tpu-v5-lite-podslice": "tpuv5e",
-	"tpu-v4-podslice":      "tpuv4",
+// Map to convert machine type to TPU version
+var MachineTypeToTPUVersionMap = map[string]string{
+	//v6e
+	"ct6e-standard-4t": "tpuv6e",
+	"ct6e-standard-8t": "tpuv6e1t",
+	//v5p
+	"ct5p-hightpu-4t": "tpuv5",
+	//v5e
+	"ct5lp-hightpu-4t": "tpuv5e",
+	"ct5lp-hightpu-8t": "tpuv5e1t",
+	//v4
+	"ct4p-hightpu-4t": "tpuv4",
 }
 
-// Allowed topologies for each worker type
-// ToDo(roshanin): cater to 8t machine types also
+// Map to convert machine type to GKE Accelerator Type
+var MachineTypeToGKEAcceleratorTypeMap = map[string]string{
+	//v6e
+	"ct6e-standard-4t": "tpu-v6e-slice",
+	"ct6e-standard-8t": "tpu-v6e-slice",
+	//v5p
+	"ct5p-hightpu-4t": "tpu-v5p-slice",
+	//v5e
+	"ct5lp-hightpu-4t": "tpu-v5-lite-podslice",
+	"ct5lp-hightpu-8t": "tpu-v5-lite-podslice",
+	//v4
+	"ct4p-hightpu-4t": "tpu-v4-podslice",
+}
+
+// Allowed topologies for each machine type
 var ValidTpuTopologiesMap = map[string][]string{
-	"tpu-v6e-slice": {
-		"1x1", "2x2", "2x4", "4x4", "4x8", "8x8", "8x16", "16x16",
-	},
-	"tpu-v5p-slice": {
+	//v6e
+	"ct6e-standard-4t": {"1x1", "2x2", "2x4", "4x4", "4x8", "8x8", "8x16", "16x16"},
+	"ct6e-standard-8t": {"2x4"},
+	//v5p
+	"ct5p-hightpu-4t": {
 		"2x2x1", "2x2x2", "2x2x4", "2x4x4", "4x4x4", "4x4x8", "4x4x12", "4x8x8",
 		"4x4x20", "4x8x12", "4x4x28", "8x8x8", "4x12x12", "4x8x20", "4x4x44",
 		"8x8x12", "4x4x52", "4x8x28", "4x12x20", "8x8x16", "4x4x68", "8x12x12",
@@ -84,12 +103,15 @@ var ValidTpuTopologiesMap = map[string][]string{
 		"4x12x116", "8x16x44", "12x20x24", "4x28x52", "8x8x92", "4x12x124", "4x8x188",
 		"4x20x76", "16x16x24", "12x24x24", "16x20x28",
 	},
-	"tpu-v5-lite-podslice": {
-		"2x4", "4x4", "4x8", "8x8", "8x16", "16x16",
+	//v5e
+	"ct5lp-hightpu-4t": {
+		"2x2", "4x4", "4x8", "8x8", "8x16", "16x16",
 	},
-	"tpu-v4-podslice": {
-		"2x2x1", "2x2x2", "2x2x4", "2x4x4", "4x4x4", "4x4x8", "4x8x8", "8x8x8",
-		"8x8x12", "8x8x16", "8x16x16",
+	"ct5lp-hightpu-8t": {"2x4"},
+	//v4
+	"ct4p-hightpu-4t": {
+		"2x2x1", "2x2x2", "2x2x4", "2x4x4", "4x4x4", "4x4x8", "4x8x8", "4x4x16", "8x8x8",
+		"8x8x12", "8x8x16", "4x16x16", "8x16x16",
 	},
 }
 
@@ -182,7 +204,7 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 		log.Info("PathwaysJob: in createJobSet calculateTPUInfo ", " Error: ", err)
 		return err
 	} else {
-		log.Info("PathwaysJob: in createJobSet calculateTPUInfo ", "TPUVersion", TPUVersion, "TPUTopology", TPUTopology, "InstanceType", InstanceType, "NumVMs", NumVMs)
+		log.Info("PathwaysJob: in createJobSet calculateTPUInfo ", "InstanceType", InstanceType, "NumVMs", NumVMs)
 	}
 	// Pathways Spec + JobSet for training or batch inference ------
 	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Colocate {
@@ -267,10 +289,10 @@ func (r *PathwaysJobReconciler) setPathwaysJobStatusBasedOnJobSetStatus(ctx cont
 			pw.Status.Condition = *makeSuspendCondition(c)
 		} else if c.Type == string(jobsetv1alpha2.JobSetCompleted) && c.Status == metav1.ConditionTrue {
 			pw.Status.Condition = *makeCompletedCondition(c)
-			pw.Status.TerminalState = pw.Status.Condition.Type
+			pw.Status.TerminalState = string(pathwaysjob.PathwaysJobCompleted)
 		} else if c.Type == string(jobsetv1alpha2.JobSetFailed) && c.Status == metav1.ConditionTrue {
 			pw.Status.Condition = *makeFailedCondition(c)
-			pw.Status.TerminalState = pw.Status.Condition.Type
+			pw.Status.TerminalState = string(pathwaysjob.PathwaysJobFailed)
 		}
 
 		if (c.Type == string(jobsetv1alpha2.JobSetCompleted) || c.Type == string(jobsetv1alpha2.JobSetFailed)) && c.Status == metav1.ConditionTrue {
@@ -333,24 +355,30 @@ func makePendingOrRunningCondition() *metav1.Condition {
 }
 
 // Find TPU version from the worker's type (- used to determine Pathways instance_type)
-func constructTPUVersionFromWorkerType(tpuGKEAcceleratorType pathwaysjob.WorkerType) string {
+func constructTPUVersionFromMachineType(machineType pathwaysjob.MachineType) string {
 	// Worker types are already validated in the YAML.
-	return WorkerTypeToTPUVersionMap[string(tpuGKEAcceleratorType)]
+	return MachineTypeToTPUVersionMap[string(machineType)]
+}
+
+// Find GKE accelerator type from the machine type (- used for nodeSelector)
+func constructGKEAcceleratorTypeFromMachineType(machineType pathwaysjob.MachineType) string {
+	// Worker types are already validated in the YAML.
+	return MachineTypeToGKEAcceleratorTypeMap[string(machineType)]
 }
 
 // Validate that topology provided is valid for the provided worker type.
-func validateTPUTopologyWithWorkerType(ctx context.Context, tpuGKEAcceleratorType pathwaysjob.WorkerType, topology string) (string, error) {
+func validateTPUTopologyWithWorkerType(ctx context.Context, machineType pathwaysjob.MachineType, topology string) (string, error) {
 	log := ctrl.LoggerFrom(ctx)
-	if slices.Contains(ValidTpuTopologiesMap[string(tpuGKEAcceleratorType)], topology) {
+	if slices.Contains(ValidTpuTopologiesMap[string(machineType)], topology) {
 		return topology, nil
 	} else {
-		log.Info("Invalid topology!!! ", "Worker type ", string(tpuGKEAcceleratorType), " cannot have topology ", topology)
+		log.Info("Invalid topology!!! ", "Worker type ", string(machineType), " cannot have topology ", topology)
 		return "", fmt.Errorf("invalid TPU topology for worker type")
 	}
 }
 
-// Calculate the number of VMs based on the Topology (- used in completions/parallelisms)
-func calculateVMsFromTopology(topology string) int32 {
+// Calculate the number of VMs based on the Machine Type and Topology (- used in completions/parallelisms)
+func calculateVMsFromMachineTypeAndTopology(machineType pathwaysjob.MachineType, topology string) int32 {
 	parts := strings.Split(topology, "x") // Examples - 2x2x4 or 4x4
 	// Calculate the number of chips based on the Topology.
 	// The topology must have already been validated with the worker type.
@@ -360,8 +388,11 @@ func calculateVMsFromTopology(topology string) int32 {
 		chips *= num
 	}
 	vms := 1
-	chipsperVM := 4          // ToDo (roshanin): Add support for VMs with 8 chips per host.
-	if chips >= chipsperVM { // addresses smaller topologies like tpu-v6e-slice 1x1
+	chipsperVM := 4
+	if (machineType == pathwaysjob.Ct6e_standard_8t) || (machineType == pathwaysjob.Ct5lp_hightpu_8t) {
+		chipsperVM = 8
+	}
+	if chips >= chipsperVM {
 		vms = chips / chipsperVM
 	}
 	return int32(vms)
@@ -370,13 +401,14 @@ func calculateVMsFromTopology(topology string) int32 {
 // Calculate all TPU related information
 func calculateTPUInfo(ctx context.Context, pw *pathwaysjob.PathwaysJob) error {
 	// setting public variables
-	TPUVersion := constructTPUVersionFromWorkerType(pw.Spec.Workers[0].Type)
-	TPUTopology, err := validateTPUTopologyWithWorkerType(ctx, pw.Spec.Workers[0].Type, pw.Spec.Workers[0].Topology)
+	tpuVersion := constructTPUVersionFromMachineType(pw.Spec.Workers[0].Type)
+	tpuTopology, err := validateTPUTopologyWithWorkerType(ctx, pw.Spec.Workers[0].Type, pw.Spec.Workers[0].Topology)
 	if err != nil {
 		return err
 	}
-	InstanceType = TPUVersion + ":" + TPUTopology
-	NumVMs = calculateVMsFromTopology(pw.Spec.Workers[0].Topology)
+	InstanceType = tpuVersion + ":" + tpuTopology
+	GKEAcceleratorType = constructGKEAcceleratorTypeFromMachineType(pw.Spec.Workers[0].Type)
+	NumVMs = calculateVMsFromMachineTypeAndTopology(pw.Spec.Workers[0].Type, pw.Spec.Workers[0].Topology)
 	return nil
 }
 
@@ -507,7 +539,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName s
 							}, // end Pathways worker container
 						},
 						NodeSelector: map[string]string{
-							"cloud.google.com/gke-tpu-accelerator": string(pw.Spec.Workers[0].Type),
+							"cloud.google.com/gke-tpu-accelerator": GKEAcceleratorType,
 							"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
 						},
 						Volumes: []corev1.Volume{
@@ -590,11 +622,11 @@ func GetUserContainerList(pw *pathwaysjob.PathwaysJob) ([]corev1.Container, erro
 
 // Construct the "leader" replicated job containing the Pathways RM, Pathways Proxy and User job
 // as containers within a pod for the 'colocate' deployment mode.
-func MakeLeaderJobForColocatedDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName string) ([]jobsetv1alpha2.ReplicatedJob, error) {
+func MakeLeaderJobForColocatedDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJob, leaderJobName string) ([]jobsetv1alpha2.ReplicatedJob, error) {
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
 
-	RMContainerSpec, _ := MakeResourceManagerContainer(pw, rmJobName)
-	ProxyContainerSpec, _ := MakeProxyContainer(pw, rmJobName)
+	RMContainerSpec, _ := MakeResourceManagerContainer(pw, leaderJobName)
+	ProxyContainerSpec, _ := MakeProxyContainer(pw, leaderJobName)
 	affinitySpec, _ := MakePodAffinityRules(pw)
 	var containerList []corev1.Container
 
@@ -606,7 +638,7 @@ func MakeLeaderJobForColocatedDeployment(ctx context.Context, pw *pathwaysjob.Pa
 	}
 
 	leaderJob := jobsetv1alpha2.ReplicatedJob{
-		Name:     rmJobName,
+		Name:     leaderJobName,
 		Replicas: 1,
 		Template: batchv1.JobTemplateSpec{
 			Spec: batchv1.JobSpec{
@@ -617,7 +649,7 @@ func MakeLeaderJobForColocatedDeployment(ctx context.Context, pw *pathwaysjob.Pa
 					Spec: corev1.PodSpec{
 						Affinity: affinitySpec,
 						NodeSelector: map[string]string{
-							"cloud.google.com/gke-tpu-accelerator": string(pw.Spec.Workers[0].Type),
+							"cloud.google.com/gke-tpu-accelerator": GKEAcceleratorType,
 							"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
 						},
 						HostNetwork: true,                              // For performance == McJAX
