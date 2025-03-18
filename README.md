@@ -1,8 +1,16 @@
 # pathways-job
-Pathways API is an OSS Kubernetes-native API, for deploying ML training and inference workloads, using Pathways on GKE.
-
+PathwaysJob API is an OSS Kubernetes-native API, to deploy ML training and batch inference workloads, using Pathways on GKE. 
+//ToDo(roshanin) - add intro for Pathways.
 ## Description
-// TODO(roshanin): An in-depth paragraph about your project and overview of use
+The PathwaysJob is an API that provides an easy way to run JAX workloads using Pathways. It support two modes of deployment.
+### Colocate mode
+The 'colocate' mode bundles the Pathways resource manager(RM), the Pathways proxy and the user workload containers into a single pod called "leader" and deploys them besides a "worker" pod on one of the TPU workers. This is preferred for Pathways batch inference workloads, where latency is crucial.
+### Default mode
+The default mode is preferred for Pathways training workloads where the worker utilizes the TPUs completely. The Pathways RM and Pathways proxy are scheduled as pods on a CPU nodepool and the "workers" are scheduled on TPUs.
+#### With a dockerized workload
+The user workload is also scheduled as a pod on the CPU nodepool.
+#### Headless mode for interactive supercomputing
+The user workload is typically on a Vertex AI notebook, so users can connect to the PathwaysJob via port-forwarding.
 
 ## Getting Started
 
@@ -98,7 +106,7 @@ More information can be found via the [Kubebuilder Documentation](https://book.k
 
 ## License
 
-Copyright 2024.
+Copyright 2025.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -111,4 +119,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
