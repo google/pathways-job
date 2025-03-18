@@ -196,7 +196,7 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 
 	log.Info("PathwaysJob: in createJobSet", "Name ", pw.GetName(), "Namespace ", pw.GetNamespace())
 
-	var jobs []jobsetv1alpha2.ReplicatedJob
+	var job jobsetv1alpha2.ReplicatedJob
 	var rmJobName string
 
 	err := calculateTPUInfo(ctx, pw)
@@ -209,10 +209,10 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 	// Pathways Spec + JobSet for training or batch inference ------
 	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Colocate {
 		rmJobName = "leader"
-		jobs, _ = MakeLeaderJobForColocatedDeployment(ctx, pw, rmJobName)
+		job, _ = MakeLeaderJobForColocatedDeployment(ctx, pw, rmJobName)
 	} else {
-		rmJobName = "rm"
-		jobs, _ = MakeJobsForDefaultDeployment(ctx, pw, rmJobName)
+		rmJobName = "pathways-head"
+		job, _ = MakePathwaysHeadJobForDefaultDeployment(ctx, pw, rmJobName)
 	}
 
 	workerJob, _ := MakeWorkerJob(ctx, pw, rmJobName)
@@ -231,7 +231,7 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 				MaxRestarts: pw.Spec.MaxRestarts,
 			},
 			SuccessPolicy:  successPolicy,
-			ReplicatedJobs: append(jobs, workerJob),
+			ReplicatedJobs: []jobsetv1alpha2.ReplicatedJob{job, workerJob},
 		},
 	}
 
@@ -429,7 +429,7 @@ func MakeSuccessPolicy(pw *pathwaysjob.PathwaysJob) *jobsetv1alpha2.SuccessPolic
 	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Colocate {
 		userJobName = "leader"
 	} else {
-		userJobName = "user-job"
+		userJobName = "pathways-head"
 	}
 	if isUserPodProvided(pw) {
 		return &jobsetv1alpha2.SuccessPolicy{Operator: jobsetv1alpha2.OperatorAll, TargetReplicatedJobs: []string{userJobName}}
@@ -610,9 +610,10 @@ func isUserPodProvided(pw *pathwaysjob.PathwaysJob) bool {
 	return pw.Spec.Controller.UserPodTemplate != nil
 }
 
-// Get the containers (main workload and any sidecars) from the user's pod spec.
-// This is used to inject the containers into the leader pod in the 'colocate' deployment mode.
-func GetUserContainerList(pw *pathwaysjob.PathwaysJob) ([]corev1.Container, error) {
+// Get the init containers (any sidecars) from the User's pod spec.
+// This is used to inject the containers into the leader pod in the 'colocate' deployment mode and
+// pathways-head pod in the 'default' deployment mode.
+func GetContainerListFromUserPodSpec(pw *pathwaysjob.PathwaysJob) ([]corev1.Container, error) {
 	// When workload is to be run in headless mode, no user pod will be provided.
 	if isUserPodProvided(pw) {
 		return pw.Spec.Controller.UserPodTemplate.Spec.Containers, nil
@@ -620,18 +621,35 @@ func GetUserContainerList(pw *pathwaysjob.PathwaysJob) ([]corev1.Container, erro
 	return nil, fmt.Errorf("no user pod provided, probably headless mode")
 }
 
+// Pods containing the following Toleration are allowed to be scheduled on TPUs.
+// This toleration is needed only for the colocated mode.
+func MakeTolerationToAllowSchedulingOnTPU(pw *pathwaysjob.PathwaysJob) []corev1.Toleration {
+	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Colocate {
+		return []corev1.Toleration{
+			{
+				Key:      "google.com/tpu",
+				Operator: "Exists",
+				Effect:   "NoSchedule",
+			},
+		}
+	} else {
+		return []corev1.Toleration{}
+	}
+}
+
 // Construct the "leader" replicated job containing the Pathways RM, Pathways Proxy and User job
 // as containers within a pod for the 'colocate' deployment mode.
-func MakeLeaderJobForColocatedDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJob, leaderJobName string) ([]jobsetv1alpha2.ReplicatedJob, error) {
+func MakeLeaderJobForColocatedDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJob, leaderJobName string) (jobsetv1alpha2.ReplicatedJob, error) {
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
 
 	RMContainerSpec, _ := MakeResourceManagerContainer(pw, leaderJobName)
 	ProxyContainerSpec, _ := MakeProxyContainer(pw, leaderJobName)
 	affinitySpec, _ := MakePodAffinityRules(pw)
+	tolerations := MakeTolerationToAllowSchedulingOnTPU(pw)
 	var containerList []corev1.Container
 
-	if isUserPodProvided(pw) {
-		containerList, _ = GetUserContainerList(pw)
+	if isUserPodProvided(pw) { // ToDo: evaluate whether headless mode is needed for Colocated mode.
+		containerList, _ = GetContainerListFromUserPodSpec(pw)
 		containerList = append(containerList, *RMContainerSpec, *ProxyContainerSpec)
 	} else {
 		containerList = []corev1.Container{*RMContainerSpec, *ProxyContainerSpec}
@@ -654,13 +672,7 @@ func MakeLeaderJobForColocatedDeployment(ctx context.Context, pw *pathwaysjob.Pa
 						},
 						HostNetwork: true,                              // For performance == McJAX
 						DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
-						Tolerations: []corev1.Toleration{
-							{
-								Key:      "google.com/tpu",
-								Operator: "Exists",
-								Effect:   "NoSchedule",
-							},
-						},
+						Tolerations: tolerations,
 						Volumes: []corev1.Volume{
 							{
 								Name: "shared-tmp",
@@ -672,154 +684,68 @@ func MakeLeaderJobForColocatedDeployment(ctx context.Context, pw *pathwaysjob.Pa
 								},
 							},
 						}, // end Volumes
-						Containers: containerList, // end leader []containers
+						Containers: containerList, // end leader []containers ROSHANI UPDATE THIS..
 					}, // end PodSpec
 				},
 			},
 		},
 	} // end replicated Job
-	return []jobsetv1alpha2.ReplicatedJob{leaderJob}, nil
+	return leaderJob, nil
 }
 
-// Construct replicated jobs for Pathways RM, Pathways Proxy and the user job for the 'default' deployment mode.
-func MakeJobsForDefaultDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName string) ([]jobsetv1alpha2.ReplicatedJob, error) {
-	volumeSourceType := corev1.HostPathDirectoryOrCreate
-
+func MakePathwaysHeadPodSpec(pw *pathwaysjob.PathwaysJob, rmJobName string) *corev1.PodSpec {
 	RMContainerSpec, _ := MakeResourceManagerContainer(pw, rmJobName)
 	ProxyContainerSpec, _ := MakeProxyContainer(pw, rmJobName)
+	var pathwaysHeadPodSpec *corev1.PodSpec
 
-	rmJob := jobsetv1alpha2.ReplicatedJob{
-		Name:     "rm",
-		Replicas: 1,
-		Template: batchv1.JobTemplateSpec{
-			Spec: batchv1.JobSpec{
-				BackoffLimit: ptr.To(int32(0)),
-				Completions:  ptr.To(int32(1)),
-				Parallelism:  ptr.To(int32(1)),
-				Template: corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						NodeSelector: map[string]string{ // predictably place RM on CPUs
-							"cloud.google.com/machine-family":  "n2",
-							"node.kubernetes.io/instance-type": "n2-standard-64",
-						},
-						HostNetwork: true,                              // For performance == McJAX
-						DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
-						// Tolerations: []corev1.Toleration{
-						// 	{
-						// 		Key:      "google.com/tpu",
-						// 		Operator: "Exists",
-						// 		Effect:   "NoSchedule",
-						// 	},
-						// },
-						Volumes: []corev1.Volume{
-							{
-								Name: "shared-tmp",
-								VolumeSource: corev1.VolumeSource{
-									HostPath: &corev1.HostPathVolumeSource{
-										Path: "/tmp",
-										Type: &volumeSourceType,
-									},
-								},
-							},
-						}, // end Volumes
-						Containers: []corev1.Container{*RMContainerSpec}, // end leader []containers
-					}, // end PodSpec
-				},
-			},
-		},
-	} // end replicated Job
-
-	proxyJob := jobsetv1alpha2.ReplicatedJob{
-		Name:     "proxy",
-		Replicas: 1,
-		Template: batchv1.JobTemplateSpec{
-			Spec: batchv1.JobSpec{
-				BackoffLimit: ptr.To(int32(0)),
-				Completions:  ptr.To(int32(1)),
-				Parallelism:  ptr.To(int32(1)),
-				Template: corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						NodeSelector: map[string]string{ // predictably place RM on CPUs
-							"cloud.google.com/machine-family":  "n2",
-							"node.kubernetes.io/instance-type": "n2-standard-64",
-						},
-						HostNetwork: true,                              // For performance == McJAX
-						DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
-						// Tolerations: []corev1.Toleration{
-						// 	{
-						// 		Key:      "google.com/tpu",
-						// 		Operator: "Exists",
-						// 		Effect:   "NoSchedule",
-						// 	},
-						// },
-						Volumes: []corev1.Volume{
-							{
-								Name: "shared-tmp",
-								VolumeSource: corev1.VolumeSource{
-									HostPath: &corev1.HostPathVolumeSource{
-										Path: "/tmp",
-										Type: &volumeSourceType,
-									},
-								},
-							},
-						}, // end Volumes
-						Containers: []corev1.Container{*ProxyContainerSpec}, // end leader []containers
-					}, // end PodSpec
-				},
-			},
-		},
-	} // end replicated Job
-
-	// Adding user job conditionally for headless mode, if the user has provided containers in PodSpec.
-	// ToDo: Add other things in PodSpec
 	if isUserPodProvided(pw) {
-		userContainerList, _ := GetUserContainerList(pw)
-		userJob := jobsetv1alpha2.ReplicatedJob{
-			Name:     "user-job",
-			Replicas: 1,
-			Template: batchv1.JobTemplateSpec{
-				Spec: batchv1.JobSpec{
-					BackoffLimit: ptr.To(int32(0)),
-					Completions:  ptr.To(int32(1)),
-					Parallelism:  ptr.To(int32(1)),
-					// Template: corev1.PodTemplateSpec{
-					// 	Spec: pw.Spec.Controller.UserPodTemplate.Spec,
-					// },
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							NodeSelector: map[string]string{ // predictably place RM on CPUs
-								"cloud.google.com/machine-family":  "n2",
-								"node.kubernetes.io/instance-type": "n2-standard-64",
-							},
-							HostNetwork: true,                              // For performance == McJAX
-							DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
-							// Tolerations: []corev1.Toleration{ // tolerations are important here to not run this job on TPUs
-							// 	{
-							// 		Key:      "google.com/tpu",
-							// 		Operator: "Exists",
-							// 		Effect:   "NoSchedule",
-							// 	},
-							// },
-							Volumes: []corev1.Volume{
-								{
-									Name: "shared-tmp",
-									VolumeSource: corev1.VolumeSource{
-										HostPath: &corev1.HostPathVolumeSource{
-											Path: "/tmp",
-											Type: &volumeSourceType,
-										},
-									},
-								},
-							}, // end Volumes
-							Containers: userContainerList,
-						}, // end PodSpec
-					},
+		// Inject Pathways RM and proxy into the user provided pod spec
+		// in the form of initContainers. The user container is the main container,
+		// whose success or failure will be tracked.
+		// Ensure DNSPolicy and HostNetwork are set as needed.
+		var containerList []corev1.Container
+		containerList, _ = GetContainerListFromUserPodSpec(pw)
+		containerList = append(containerList, *RMContainerSpec, *ProxyContainerSpec)
+		pathwaysHeadPodSpec = pw.Spec.Controller.UserPodTemplate.Spec.DeepCopy()
+		pathwaysHeadPodSpec.HostNetwork = true
+		pathwaysHeadPodSpec.DNSPolicy = corev1.DNSClusterFirstWithHostNet
+		pathwaysHeadPodSpec.Containers = containerList
+		// pathwaysHeadPodSpec.RestartPolicy = corev1.RestartPolicyAlways
+	} else {
+		// In Headless mode, RM and proxy are the the main containers
+		containerList := []corev1.Container{*RMContainerSpec, *ProxyContainerSpec}
+		pathwaysHeadPodSpec = &corev1.PodSpec{
+			HostNetwork: true,                              // For performance == McJAX
+			DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
+			Containers:  containerList,
+		} // end PodSpec
+	}
+
+	// Add affinity and tolerations to allow the Pathways head pod to be scheduled on TPUs.
+	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Colocate {
+		affinitySpec, _ := MakePodAffinityRules(pw)
+		tolerations := MakeTolerationToAllowSchedulingOnTPU(pw)
+		pathwaysHeadPodSpec.Affinity = affinitySpec
+		pathwaysHeadPodSpec.Tolerations = tolerations
+	}
+	return pathwaysHeadPodSpec
+}
+
+// Construct PathwaysHead replicated job containing Pathways RM, Pathways Proxy and the user job containers for the 'default' deployment mode.
+func MakePathwaysHeadJobForDefaultDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName string) (jobsetv1alpha2.ReplicatedJob, error) {
+	pathwaysHeadJob := jobsetv1alpha2.ReplicatedJob{
+		Name:     "pathways-head",
+		Replicas: 1,
+		Template: batchv1.JobTemplateSpec{
+			Spec: batchv1.JobSpec{
+				BackoffLimit: ptr.To(int32(0)),
+				Completions:  ptr.To(int32(1)),
+				Parallelism:  ptr.To(int32(1)),
+				Template: corev1.PodTemplateSpec{
+					Spec: *MakePathwaysHeadPodSpec(pw, rmJobName),
 				},
 			},
-		} // end replicated Job
-		// Default mode jobs, when user pod is provided
-		return []jobsetv1alpha2.ReplicatedJob{rmJob, proxyJob, userJob}, nil
-	}
-	// Default mode jobs, headless mode
-	return []jobsetv1alpha2.ReplicatedJob{rmJob, proxyJob}, nil
+		},
+	} // end replicated Job
+	return pathwaysHeadJob, nil
 }
