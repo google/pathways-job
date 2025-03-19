@@ -53,6 +53,10 @@ var (
 	GKEAcceleratorType string
 )
 
+const (
+	PathwaysHeadJobName = "pathways-head"
+)
+
 // Map to convert machine type to TPU version
 var MachineTypeToTPUVersionMap = map[string]string{
 	//v6e
@@ -139,14 +143,10 @@ func (r *PathwaysJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// 2. Process the Pathways object and build a JobSet client
 	kubeconfig := ctrl.GetConfigOrDie()
-	// log.Info("PathwaysJob: config established...")
-
 	jobSetClient := jobsetclient.NewForConfigOrDie(kubeconfig)
-	// log.Info("PathwaysJob: client built for JobSet...")
 
 	// 2.1 Figure out if PathwaysJob is already present
 	// if it is the case, there is nothing to do.
-	// (ToDo) check states in "Suspended / Completed / Failed states",
 
 	childJobSet, err := r.getChildJobSet(ctx, pw, jobSetClient)
 	if err != nil {
@@ -166,7 +166,7 @@ func (r *PathwaysJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	//4. Update the object's status using Conditions (?)
+	//4. Update the object's status using Conditions
 	childJobSet, _ = r.getChildJobSet(ctx, pw, jobSetClient)
 	r.setPathwaysJobStatusBasedOnJobSetStatus(ctx, pw, childJobSet)
 
@@ -178,7 +178,6 @@ func (r *PathwaysJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 func (r *PathwaysJobReconciler) getChildJobSet(ctx context.Context, pw *pathwaysjob.PathwaysJob, jobSetClient *jobsetclient.Clientset) (*jobsetv1alpha2.JobSet, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
 	ctx = ctrl.LoggerInto(ctx, log)
-
 	log.Info("PathwaysJob: in getChildJobSet", "Name ", pw.GetName(), "Namespace ", pw.GetNamespace())
 
 	var js *jobsetv1alpha2.JobSet
@@ -195,9 +194,7 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 	ctx = ctrl.LoggerInto(ctx, log)
 
 	log.Info("PathwaysJob: in createJobSet", "Name ", pw.GetName(), "Namespace ", pw.GetNamespace())
-
 	var job jobsetv1alpha2.ReplicatedJob
-	var rmJobName string
 
 	err := calculateTPUInfo(ctx, pw)
 	if err != nil {
@@ -208,14 +205,12 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 	}
 	// Pathways Spec + JobSet for training or batch inference ------
 	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Colocate {
-		rmJobName = "leader"
-		job, _ = MakeLeaderJobForColocatedDeployment(ctx, pw, rmJobName)
+		job, _ = MakePathwaysHeadJobForColocatedDeployment(ctx, pw)
 	} else {
-		rmJobName = "pathways-head"
-		job, _ = MakePathwaysHeadJobForDefaultDeployment(ctx, pw, rmJobName)
+		job, _ = MakePathwaysHeadJobForDefaultDeployment(ctx, pw)
 	}
 
-	workerJob, _ := MakeWorkerJob(ctx, pw, rmJobName)
+	workerJob, _ := MakeWorkerJob(ctx, pw)
 	successPolicy := MakeSuccessPolicy(pw)
 
 	mainJobSetConfig := jobsetv1alpha2.JobSet{
@@ -284,7 +279,6 @@ func (r *PathwaysJobReconciler) setPathwaysJobStatusBasedOnJobSetStatus(ctx cont
 			log.Info("\n\n PathwaysJob setPathwaysJobStatusBasedOnJobSetStatus: START STATE", "Condition ", pw.Status.Condition.Type, "Status", pw.Status.Condition.Status, "Reason ", pw.Status.Condition.Reason, "Message", pw.Status.Condition.Message)
 		}
 
-		// var pathwaysCondition metav1.Condition
 		if c.Type == string(jobsetv1alpha2.JobSetSuspended) && c.Status == metav1.ConditionTrue {
 			pw.Status.Condition = *makeSuspendCondition(c)
 		} else if c.Type == string(jobsetv1alpha2.JobSetCompleted) && c.Status == metav1.ConditionTrue {
@@ -299,15 +293,6 @@ func (r *PathwaysJobReconciler) setPathwaysJobStatusBasedOnJobSetStatus(ctx cont
 			log.Info("PathwaysJob setPathwaysJobStatusBasedOnJobSetStatus: TERMINAL state", "JobSet condition type ", c.Type, "Reason ", c.Reason, "Message", c.Message, "Pathways condition type", pw.Status.Condition.Type, "Pathways TerminalState", pw.Status.TerminalState)
 		}
 	}
-
-	// for _, cp := range pw.Status.Conditions {
-	// 	log.Info("PathwaysJob setPathwaysJobStatusBasedOnJobSetStatus: Showing all states so far", "Pathways condition type ", cp.Type, "Status", cp.Status, "Reason ", cp.Reason, "Message", cp.Message, "Pathways TerminalState", pw.Status.TerminalState)
-
-	// }
-
-	// for _, j := range js.Status.ReplicatedJobsStatus {
-	// 	log.Info("PathwaysJob findJobSetStatus replicatedJobStatus ", "Name", j.Name, "Ready", j.Ready, "Succeeded", j.Succeeded, "Failed", j.Failed, "Active", j.Active, "Suspended", j.Suspended)
-	// }
 }
 
 // Construct the Suspended condition for PathwaysJob
@@ -372,7 +357,7 @@ func validateTPUTopologyWithWorkerType(ctx context.Context, machineType pathways
 	if slices.Contains(ValidTpuTopologiesMap[string(machineType)], topology) {
 		return topology, nil
 	} else {
-		log.Info("Invalid topology!!! ", "Worker type ", string(machineType), " cannot have topology ", topology)
+		log.Info("Invalid topology!!! ", "Machine type ", string(machineType), " cannot have topology ", topology)
 		return "", fmt.Errorf("invalid TPU topology for worker type")
 	}
 }
@@ -425,28 +410,20 @@ func makeImageTagUsingPathwaysVersion(pw *pathwaysjob.PathwaysJob) string {
 
 // Construct success policy based on deployment mode and user workload spec.
 func MakeSuccessPolicy(pw *pathwaysjob.PathwaysJob) *jobsetv1alpha2.SuccessPolicy {
-	var userJobName string
-	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Colocate {
-		userJobName = "leader"
-	} else {
-		userJobName = "pathways-head"
-	}
+	userJobName := "pathways-head"
 	if isUserPodProvided(pw) {
 		return &jobsetv1alpha2.SuccessPolicy{Operator: jobsetv1alpha2.OperatorAll, TargetReplicatedJobs: []string{userJobName}}
 	} else {
-		return &jobsetv1alpha2.SuccessPolicy{}
+		return nil
 	}
 }
 
 // Constructs the Pathways resource manager container spec for the underlying JobSet
-func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, rmJobName string) (*corev1.Container, error) {
-	// truth := true
-
+func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*corev1.Container, error) {
 	rmContainerSpec := corev1.Container{
 		Name:            "pathways-rm",
 		Image:           fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:%s", makeImageTagUsingPathwaysVersion(pw)),
 		ImagePullPolicy: "Always",
-		// SecurityContext: &corev1.SecurityContext{Privileged: &truth},
 		Args: []string{
 			"--server_port=29001",
 			fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
@@ -458,37 +435,48 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, rmJobName string)
 			{Name: "REPLICATED_JOB_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/replicatedjob-name']"}}},
 			{Name: "JOBSET_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/jobset-name']"}}},
 			// {Name: "HOST_ADDRESS", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.labels['jobset.sigs.k8s.io/coordinator']"}}},
-			{Name: "HOST_ADDRESS", Value: fmt.Sprintf("%s-%s-0-0.%s", pw.GetName(), rmJobName, pw.GetName())},
+			{Name: "HOST_ADDRESS", Value: fmt.Sprintf("%s-%s-0-0.%s", pw.GetName(), PathwaysHeadJobName, pw.GetName())},
 			{Name: "TPU_SKIP_MDS_QUERY", Value: "true"},
 		},
 		Ports: []corev1.ContainerPort{{ContainerPort: 29001}, {ContainerPort: 29002}},
 		// Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(8000000000, resource.DecimalSI)}},
 	}
+
+	// Init containers can have restartPolicy but regular containers cannot have restartPolicy.
+	var restartPolicy corev1.ContainerRestartPolicy
+	if isInitContainer {
+		restartPolicy = corev1.ContainerRestartPolicyAlways
+		rmContainerSpec.RestartPolicy = &restartPolicy
+	}
 	return &rmContainerSpec, nil
 }
 
 // Constructs the Pathways proxy container spec for the underlying JobSet
-func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, rmJobName string) (*corev1.Container, error) {
-	// truth := true
+func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*corev1.Container, error) {
 
 	proxyContainerSpec := corev1.Container{
 		Name:            "pathways-proxy",
 		Image:           fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/proxy_server:%s", makeImageTagUsingPathwaysVersion(pw)),
 		ImagePullPolicy: "Always",
-		// SecurityContext: &corev1.SecurityContext{Privileged: &truth},
 		Args: []string{
 			"--server_port=29000",
-			fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:29001", pw.GetName(), rmJobName, pw.GetName()),
+			fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:29001", pw.GetName(), PathwaysHeadJobName, pw.GetName()),
 			fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
 		},
 		Ports: []corev1.ContainerPort{{ContainerPort: 29000}},
 		// Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(100000000000, resource.DecimalSI)}}, //100GiB
 	}
+	// Init containers can have restartPolicy but regular containers cannot have restartPolicy.
+	var restartPolicy corev1.ContainerRestartPolicy
+	if isInitContainer {
+		restartPolicy = corev1.ContainerRestartPolicyAlways
+		proxyContainerSpec.RestartPolicy = &restartPolicy
+	}
 	return &proxyContainerSpec, nil
 }
 
 // Constructs Pathways worker replicated job for both 'colocated' and 'default' deployment modes.
-func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName string) (jobsetv1alpha2.ReplicatedJob, error) {
+func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1alpha2.ReplicatedJob, error) {
 	// truth := true
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
 	objectMeta := metav1.ObjectMeta{}
@@ -520,7 +508,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName s
 								// SecurityContext: &corev1.SecurityContext{Privileged: &truth},
 								Args: []string{
 									"--server_port=29005",
-									fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:29001", pw.GetName(), rmJobName, pw.GetName()),
+									fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:29001", pw.GetName(), PathwaysHeadJobName, pw.GetName()),
 									fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
 								},
 								Env: []corev1.EnvVar{
@@ -606,6 +594,7 @@ func MakePodAffinityRules(pw *pathwaysjob.PathwaysJob) (*corev1.Affinity, error)
 	return &affinity, nil
 }
 
+// Checks whether user pod is provided or the workload is in headless mode.
 func isUserPodProvided(pw *pathwaysjob.PathwaysJob) bool {
 	return pw.Spec.Controller.UserPodTemplate != nil
 }
@@ -637,82 +626,25 @@ func MakeTolerationToAllowSchedulingOnTPU(pw *pathwaysjob.PathwaysJob) []corev1.
 	}
 }
 
-// Construct the "leader" replicated job containing the Pathways RM, Pathways Proxy and User job
-// as containers within a pod for the 'colocate' deployment mode.
-func MakeLeaderJobForColocatedDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJob, leaderJobName string) (jobsetv1alpha2.ReplicatedJob, error) {
-	volumeSourceType := corev1.HostPathDirectoryOrCreate
-
-	RMContainerSpec, _ := MakeResourceManagerContainer(pw, leaderJobName)
-	ProxyContainerSpec, _ := MakeProxyContainer(pw, leaderJobName)
-	affinitySpec, _ := MakePodAffinityRules(pw)
-	tolerations := MakeTolerationToAllowSchedulingOnTPU(pw)
-	var containerList []corev1.Container
-
-	if isUserPodProvided(pw) { // ToDo: evaluate whether headless mode is needed for Colocated mode.
-		containerList, _ = GetContainerListFromUserPodSpec(pw)
-		containerList = append(containerList, *RMContainerSpec, *ProxyContainerSpec)
-	} else {
-		containerList = []corev1.Container{*RMContainerSpec, *ProxyContainerSpec}
-	}
-
-	leaderJob := jobsetv1alpha2.ReplicatedJob{
-		Name:     leaderJobName,
-		Replicas: 1,
-		Template: batchv1.JobTemplateSpec{
-			Spec: batchv1.JobSpec{
-				BackoffLimit: ptr.To(int32(0)),
-				Completions:  ptr.To(int32(1)),
-				Parallelism:  ptr.To(int32(1)),
-				Template: corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						Affinity: affinitySpec,
-						NodeSelector: map[string]string{
-							"cloud.google.com/gke-tpu-accelerator": GKEAcceleratorType,
-							"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
-						},
-						HostNetwork: true,                              // For performance == McJAX
-						DNSPolicy:   corev1.DNSClusterFirstWithHostNet, // For performance == McJAX
-						Tolerations: tolerations,
-						Volumes: []corev1.Volume{
-							{
-								Name: "shared-tmp",
-								VolumeSource: corev1.VolumeSource{
-									HostPath: &corev1.HostPathVolumeSource{
-										Path: "/tmp",
-										Type: &volumeSourceType,
-									},
-								},
-							},
-						}, // end Volumes
-						Containers: containerList, // end leader []containers ROSHANI UPDATE THIS..
-					}, // end PodSpec
-				},
-			},
-		},
-	} // end replicated Job
-	return leaderJob, nil
-}
-
-func MakePathwaysHeadPodSpec(pw *pathwaysjob.PathwaysJob, rmJobName string) *corev1.PodSpec {
-	RMContainerSpec, _ := MakeResourceManagerContainer(pw, rmJobName)
-	ProxyContainerSpec, _ := MakeProxyContainer(pw, rmJobName)
+func MakePathwaysHeadPodSpec(pw *pathwaysjob.PathwaysJob) *corev1.PodSpec {
 	var pathwaysHeadPodSpec *corev1.PodSpec
-
 	if isUserPodProvided(pw) {
 		// Inject Pathways RM and proxy into the user provided pod spec
 		// in the form of initContainers. The user container is the main container,
 		// whose success or failure will be tracked.
 		// Ensure DNSPolicy and HostNetwork are set as needed.
-		var containerList []corev1.Container
-		containerList, _ = GetContainerListFromUserPodSpec(pw)
-		containerList = append(containerList, *RMContainerSpec, *ProxyContainerSpec)
+		RMContainerSpec, _ := MakeResourceManagerContainer(pw, true)
+		ProxyContainerSpec, _ := MakeProxyContainer(pw, true)
+		initContainerList := []corev1.Container{*RMContainerSpec, *ProxyContainerSpec}
 		pathwaysHeadPodSpec = pw.Spec.Controller.UserPodTemplate.Spec.DeepCopy()
 		pathwaysHeadPodSpec.HostNetwork = true
 		pathwaysHeadPodSpec.DNSPolicy = corev1.DNSClusterFirstWithHostNet
-		pathwaysHeadPodSpec.Containers = containerList
-		// pathwaysHeadPodSpec.RestartPolicy = corev1.RestartPolicyAlways
+		pathwaysHeadPodSpec.InitContainers = initContainerList
 	} else {
-		// In Headless mode, RM and proxy are the the main containers
+		// In Headless mode, RM and proxy are the the main containers.
+		// Ensure DNSPolicy and HostNetwork are set as needed.
+		RMContainerSpec, _ := MakeResourceManagerContainer(pw, false)
+		ProxyContainerSpec, _ := MakeProxyContainer(pw, false)
 		containerList := []corev1.Container{*RMContainerSpec, *ProxyContainerSpec}
 		pathwaysHeadPodSpec = &corev1.PodSpec{
 			HostNetwork: true,                              // For performance == McJAX
@@ -720,19 +652,10 @@ func MakePathwaysHeadPodSpec(pw *pathwaysjob.PathwaysJob, rmJobName string) *cor
 			Containers:  containerList,
 		} // end PodSpec
 	}
-
-	// Add affinity and tolerations to allow the Pathways head pod to be scheduled on TPUs.
-	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Colocate {
-		affinitySpec, _ := MakePodAffinityRules(pw)
-		tolerations := MakeTolerationToAllowSchedulingOnTPU(pw)
-		pathwaysHeadPodSpec.Affinity = affinitySpec
-		pathwaysHeadPodSpec.Tolerations = tolerations
-	}
 	return pathwaysHeadPodSpec
 }
 
-// Construct PathwaysHead replicated job containing Pathways RM, Pathways Proxy and the user job containers for the 'default' deployment mode.
-func MakePathwaysHeadJobForDefaultDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJob, rmJobName string) (jobsetv1alpha2.ReplicatedJob, error) {
+func MakePathwaysHeadReplicatedJob(pathwaysHeadPodSpec corev1.PodSpec) jobsetv1alpha2.ReplicatedJob {
 	pathwaysHeadJob := jobsetv1alpha2.ReplicatedJob{
 		Name:     "pathways-head",
 		Replicas: 1,
@@ -742,10 +665,30 @@ func MakePathwaysHeadJobForDefaultDeployment(ctx context.Context, pw *pathwaysjo
 				Completions:  ptr.To(int32(1)),
 				Parallelism:  ptr.To(int32(1)),
 				Template: corev1.PodTemplateSpec{
-					Spec: *MakePathwaysHeadPodSpec(pw, rmJobName),
+					Spec: pathwaysHeadPodSpec,
 				},
 			},
 		},
 	} // end replicated Job
-	return pathwaysHeadJob, nil
+	return pathwaysHeadJob
+}
+
+// Construct pathways-head replicated job containing Pathways RM, Pathways Proxy and the user job containers for the 'colocate' deployment mode.
+// In the colocate mode, the Pathways head pod is placed on TPU nodes, beside a worker pod.
+func MakePathwaysHeadJobForColocatedDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1alpha2.ReplicatedJob, error) {
+	podSpec := *MakePathwaysHeadPodSpec(pw)
+	// Add affinity and tolerations to allow the Pathways head pod to be scheduled on TPUs.
+	affinitySpec, _ := MakePodAffinityRules(pw)
+	tolerations := MakeTolerationToAllowSchedulingOnTPU(pw)
+	podSpec.Affinity = affinitySpec
+	podSpec.Tolerations = tolerations
+
+	return MakePathwaysHeadReplicatedJob(podSpec), nil
+}
+
+// Construct pathways-head replicated job containing Pathways RM, Pathways Proxy and the user job containers for the 'default' deployment mode.
+// In the default mode, the Pathways head pod is placed on CPU nodes.
+func MakePathwaysHeadJobForDefaultDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1alpha2.ReplicatedJob, error) {
+	podSpec := *MakePathwaysHeadPodSpec(pw)
+	return MakePathwaysHeadReplicatedJob(podSpec), nil
 }

@@ -15,14 +15,12 @@
 apiVersion: pathways-job.pathways.domain/v1
 kind: PathwaysJob
 metadata:
-  name: pathways-trial202
+  name: pathways-trial
 spec:
-  maxRestarts: 2
+  maxRestarts: 10
   workers:
-  # - type: tpu-v5p-slice
-  #   topology: 4x4x4
-  - type: tpu-v4-podslice
-    topology: 2x2x2
+  - type: ct5p-hightpu-4t
+    topology: 4x4x4
     numSlices: 2
   pathwaysDir: "gs://test-bucket/tmp" #This bucket needs to be created in advance.
   controller:
@@ -39,85 +37,14 @@ spec:
           - name: JAX_PLATFORMS
             value: proxy
           - name: JAX_BACKEND_TARGET
-            value: grpc://pathways-trial202-proxy-0-0.pathways-trial202:29008
-          image: us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/maxtext_jax_stable:roshanin
+            value: grpc://pathways-trial-pathways-head-0-0.pathways-trial:29000
+          image: python:3.13
           imagePullPolicy: Always
           command:
-            - bash
-            - -c
-            - |
-              (python3 MaxText/train.py MaxText/configs/base.yml base_output_directory=gs://cloud-pathways-staging dataset_path=gs://maxtext-dataset/ steps=10 run_name=roshanin-pathways1 enable_single_controller=true attention=dot_product monitor_goodput=False enable_tensorboard=True enable_checkpointing=False);
-          volumeMounts:
-          - mountPath: /tmp
-            name: shared-tmp
-          resources:
-            limits:
-              cpu: "20"
-              memory: 90G
-
-
-
-    # # #Pod template for inference, colocate mode.
-
-
-    # deploymentMode: colocate
-    # template: # UserPodTemplate
-    #   spec:
-    #     containers:
-    #     - name: jetstream
-    #       image: us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/maxtext_jax_stable:latest
-    #       imagePullPolicy: Always
-    #       ports:
-    #       - containerPort: 9000
-    #       env:
-    #       - name: XCLOUD_ENVIRONMENT
-    #         value: GCP
-    #       - name: JAX_PLATFORMS
-    #         value: proxy
-    #       - name: JAX_BACKEND_TARGET
-    #         value: grpc://pathways-trial202-leader-0-0.pathways-trial202:29008
-    #       command:
-    #         - bash
-    #         - -c
-    #         - 'echo Start: $(date);
-    #           _sigterm() ( kill -SIGTERM $! 2>/dev/null;);
-    #           trap _sigterm SIGTERM;
-    #           (JAX_TRACEBACK_FILTERING=off python3 MaxText/maxengine_server.py
-    #           MaxText/configs/inference_jetstream.yml tokenizer_path=assets/tokenizer.llama2
-    #           load_parameters_path=gs://runner-maxtext-logs/2024-05-07-23-34/unscanned_chkpt/checkpoints/0/items
-    #           max_prefill_predict_length=1024 max_target_length=2048 async_checkpointing=false
-    #           model_name=''llama2-70b'' steps=1 ici_fsdp_parallelism=1 ici_autoregressive_parallelism=-1
-    #           ici_tensor_parallelism=1 scan_layers=false weight_dtype=bfloat16
-    #           per_device_batch_size=2) & PID=$!;
-    #           while kill -0 $PID 2>/dev/null;
-    #           do sleep 5;
-    #           done;
-    #           wait $PID;
-    #           EXIT_CODE=$?
-    #           echo EXIT_CODE=$EXIT_CODE;
-    #           echo End sleep: $(date);
-    #           sleep infinity;'
-    #     - name: tester
-    #       image: us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/maxtext_jax_stable:latest
-    #       imagePullPolicy: Always
-    #       command:
-    #       - bash
-    #       - -c
-    #       - 'echo Start: $(date);
-    #         _sigterm() ( kill -SIGTERM $! 2>/dev/null;);
-    #         trap _sigterm SIGTERM;
-    #         for i in {1..5}; do
-    #           echo Sending request $i;
-    #           time python3 JetStream/jetstream/tools/requester.py --tokenizer assets/tokenizer.llama2 --max_tokens=16 --server=0.0.0.0 --text=\"why earth is round\";
-    #           EXIT_CODE=$?;
-    #           echo Completed request;
-    #           echo EXIT_CODE=$EXIT_CODE;
-    #           if [[ $EXIT_CODE -ne 0 ]]; then
-    #             break;
-    #           fi;
-    #         done;
-    #         echo Last EXIT_CODE=$EXIT_CODE;
-    #         echo End sleep: $(date);
-    #         sleep infinity;'
-    #       securityContext:
-    #         privileged: true
+          - /bin/sh
+          - -c
+          - |
+            pip install --upgrade pip
+            pip install -U --pre jax jaxlib -f https://storage.googleapis.com/jax-releases/jax_nightly_releases.html
+            pip install pathwaysutils
+            python -c "import jax; import pathwaysutils; print(\"Number of JAX devices is\", len(jax.devices()))"
