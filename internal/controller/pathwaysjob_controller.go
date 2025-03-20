@@ -477,16 +477,12 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*cor
 
 // Constructs Pathways worker replicated job for both 'colocated' and 'default' deployment modes.
 func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1alpha2.ReplicatedJob, error) {
-	// truth := true
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
-	objectMeta := metav1.ObjectMeta{}
 
-	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Default {
-		objectMeta = metav1.ObjectMeta{
-			Annotations: map[string]string{
-				"alpha.jobset.sigs.k8s.io/exclusive-topology": "cloud.google.com/gke-nodepool",
-			},
-		}
+	objectMeta := metav1.ObjectMeta{
+		Annotations: map[string]string{
+			"alpha.jobset.sigs.k8s.io/exclusive-topology": "cloud.google.com/gke-nodepool",
+		},
 	}
 
 	workerJob := jobsetv1alpha2.ReplicatedJob{
