@@ -14,10 +14,30 @@ spec:
     singular: pathwaysjob
   scope: Namespaced
   versions:
-  - name: v1
+  - additionalPrinterColumns:
+    - description: Final state of the PathwaysJob
+      jsonPath: .status.terminalState
+      name: TerminalState
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Completed")].status
+      name: Completed
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Failed")].status
+      name: Failed
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Suspended")].status
+      name: Suspended
+      type: string
+    - description: Creation time for the PathwaysJob
+      jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
     schema:
       openAPIV3Schema:
-        description: PathwaysJob is the Schema for the PathwaysJobs API
+        description: |-
+          PathwaysJob is the Schema for the PathwaysJobs API
+          Print column specifies the details seen on kubectl get pathwaysjob
         properties:
           apiVersion:
             description: |-
@@ -54,6 +74,9 @@ spec:
                     - colocate
                     - default
                     type: string
+                    x-kubernetes-validations:
+                    - message: deploymentMode is immutable
+                      rule: self == oldSelf
                   template:
                     description: |-
                       UserPodTemplate accepts a pod composed of user's workload
@@ -8051,22 +8074,34 @@ spec:
                         - containers
                         type: object
                     type: object
+                    x-kubernetes-validations:
+                    - message: userPodTemplate is immutable
+                      rule: self == oldSelf
                 type: object
               maxRestarts:
                 description: Maximum number of times the JobSet is restarted.
                 format: int32
                 type: integer
+                x-kubernetes-validations:
+                - message: maxRestarts is immutable
+                  rule: self == oldSelf
               pathwaysDir:
                 description: |-
                   PathwaysDir is a persistent GCS location at which temporary
                   Pathways artifacts can be stored like HBM state during interruptions.
                   Currently, Pathways supports a precreated GCS directory only.
                 type: string
+                x-kubernetes-validations:
+                - message: pathwaysDir is immutable
+                  rule: self == oldSelf
               pathwaysVersion:
                 description: |-
                   PathwaysVersion is the version of the Pathways cluster.
                   This indicates the version of the Pathways RM, Proxy and Workers.
                 type: string
+                x-kubernetes-validations:
+                - message: pathwaysVersion is immutable
+                  rule: self == oldSelf
               workers:
                 description: |-
                   The list of worker types created for the Pathways Job. Currently only
@@ -8083,25 +8118,32 @@ spec:
                       type: integer
                     topology:
                       description: |-
-                        This will translate to a nodeSelector of the form
+                        Topology will translate to a nodeSelector of the form
                         cloud.google.com/gke-tpu-topology:2x2
                       type: string
                     type:
                       description: |-
-                        This will translate to a nodeSelector of the form
+                        MachineType is GKE machine type.
+                        It will translate to a nodeSelector of the form
                         cloud.google.com/gke-tpu-accelerator: tpu-v5-lite-podslice
                       enum:
-                      - tpu-v4-podslice
-                      - tpu-v5p-slice
-                      - tpu-v5-lite-podslice
-                      - tpu-v6e-slice
+                      - ct6e-standard-4t
+                      - ct6e-standard-8t
+                      - ct5p-hightpu-4t
+                      - ct5lp-hightpu-4t
+                      - ct5lp-hightpu-8t
+                      - ct4p-hightpu-4t
                       type: string
                   required:
                   - numSlices
                   - topology
                   - type
                   type: object
+                maxItems: 1
                 type: array
+                x-kubernetes-validations:
+                - message: workers are immutable
+                  rule: self == oldSelf
             required:
             - controller
             - workers
@@ -8111,11 +8153,10 @@ spec:
             properties:
               conditions:
                 description: |-
-                  Aggregate  of the PathwaysJob workload, based on worker and
-                  controller statuses.
-                  One of - Pending, Running, Suspended, Completed, Failed.
-                  Contains a human readable message to provide additional details to the
-                  user. Conditions are mentioned in PathwaysConditionType.
+                  Conditions help track the state of the PathwaysJob.
+                  PathwaysJob can be one of Pending, Running, Suspended, Completed, Failed.
+                  They contain a human readable message to provide additional details
+                  to the user. Condition types are mentioned in PathwaysConditionType.
                 items:
                   description: "Condition contains details for one aspect of the current
                     state of this API Resource.\n---\nThis struct is intended for
@@ -8184,39 +8225,16 @@ spec:
                   - type
                   type: object
                 type: array
-              controllerStatus:
+              restarts:
+                description: Restarts tracks the number of times the PathwaysJob has
+                  restarted.
+                format: int32
+                type: integer
+              terminalState:
                 description: |-
-                  Tracks the  of the Pathways controller -
-                  1. derived from "leader" replicatedJob in colocated mode
-                  (leader job contains "rm", "proxy" and "user" as containers)
-                  2. derived from "rm" and "proxy" replicatedJobs in
-                  default + headless mode.
-                  3. derived from "rm", "proxy" and "user-job" replicatedJobs in
-                  default + container mode.
+                  TerminalState the state of the PathwaysJob when it finishes execution.
+                  It can be either Complete or Failed. Otherwise, it is empty by default.
                 type: string
-              workersStatus:
-                description: Track the  of the Pathways TPU workers -
-                properties:
-                  aggregateWorkersStatus:
-                    description: |-
-                      Status aggregated over all TPU slices.
-                      One of - Pending, Running, Suspended, Completed, Failed.
-                    type: string
-                  workersSliceStatus:
-                    description: Status details on each TPU worker slice
-                    items:
-                      description: Job Status in JobSet
-                      properties:
-                        ready:
-                          description: Number of workers in the slice that are ready.
-                          format: int32
-                          type: integer
-                        sliceStatus:
-                          description: Individual TPU slice's status.
-                          type: string
-                      type: object
-                    type: array
-                type: object
             type: object
         type: object
     served: true

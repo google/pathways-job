@@ -19,8 +19,8 @@ metadata:
 spec:
   maxRestarts: 10
   workers:
-  - type: tpu-v4-podslice
-    topology: 2x2x2
+  - type: ct5p-hightpu-4t
+    topology: 4x4x4
     numSlices: 2
   pathwaysDir: "gs://test-bucket/tmp" #This bucket needs to be created in advance.
   controller:
@@ -37,7 +37,7 @@ spec:
           - name: JAX_PLATFORMS
             value: proxy
           - name: JAX_BACKEND_TARGET
-            value: grpc://pathways-trial-proxy-0-0.pathways-trial:29000
+            value: grpc://pathways-trial-pathways-head-0-0.pathways-trial:29000
           image: python:3.13
           imagePullPolicy: Always
           command:

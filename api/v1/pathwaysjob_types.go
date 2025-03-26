@@ -21,13 +21,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// +kubebuilder:object:root=true
-// +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Namespaced
-
 // PathwaysJob is the Schema for the PathwaysJobs API
+// Print column specifies the details seen on kubectl get pathwaysjob
+// +kubebuilder:object:root=true
+// +kubebuilder:resource:scope=Namespaced
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="TerminalState",priority=0,JSONPath=".status.terminalState",type=string,description="Final state of the PathwaysJob"
+// +kubebuilder:printcolumn:name="Completed",type="string",JSONPath=".status.conditions[?(@.type==\"Completed\")].status"
+// +kubebuilder:printcolumn:name="Failed",type="string",JSONPath=".status.conditions[?(@.type==\"Failed\")].status"
+// +kubebuilder:printcolumn:name="Suspended",type="string",JSONPath=".status.conditions[?(@.type==\"Suspended\")].status"
+// +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type=date,description="Creation time for the PathwaysJob"
 type PathwaysJob struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -55,53 +58,30 @@ type PathwaysJobList struct {
 // to run their workloads.
 
 type PathwaysJobSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
 
 	// Maximum number of times the JobSet is restarted.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="maxRestarts is immutable"
 	MaxRestarts int32 `json:"maxRestarts,omitempty"`
 
 	// PathwaysDir is a persistent GCS location at which temporary
 	// Pathways artifacts can be stored like HBM state during interruptions.
 	// Currently, Pathways supports a precreated GCS directory only.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="pathwaysDir is immutable"
 	PathwaysDir string `json:"pathwaysDir,omitempty"`
 
 	// PathwaysVersion is the version of the Pathways cluster.
 	// This indicates the version of the Pathways RM, Proxy and Workers.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="pathwaysVersion is immutable"
 	PathwaysVersion string `json:"pathwaysVersion,omitempty"`
 
 	// The list of worker types created for the Pathways Job. Currently only
 	// one type of worker is supported.
+	// +kubebuilder:validation:MaxItems=1
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="workers are immutable"
 	Workers []WorkerSpec `json:"workers"`
 
 	// Pathways single-controller specifications and user workload.
 	Controller *ControllerSpec `json:"controller"`
-}
-
-// PathwaysJobStatus defines the observed state of PathwaysJob
-type PathwaysJobStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Aggregate  of the PathwaysJob workload, based on worker and
-	// controller statuses.
-	// One of - Pending, Running, Suspended, Completed, Failed.
-	// Contains a human readable message to provide additional details to the
-	// user. Conditions are mentioned in PathwaysConditionType.
-	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
-
-	// Track the  of the Pathways TPU workers -
-	WorkersStatus *WorkersStatus `json:"workersStatus,omitempty"`
-
-	// Tracks the  of the Pathways controller -
-	// 1. derived from "leader" replicatedJob in colocated mode
-	// (leader job contains "rm", "proxy" and "user" as containers)
-	// 2. derived from "rm" and "proxy" replicatedJobs in
-	// default + headless mode.
-	// 3. derived from "rm", "proxy" and "user-job" replicatedJobs in
-	// default + container mode.
-	ControllerStatus *PathwaysComponentStatus `json:"controllerStatus,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=colocate;default
@@ -112,24 +92,31 @@ const (
 	Default  DeploymentMode = "default"
 )
 
-// +kubebuilder:validation:Enum=tpu-v4-podslice;tpu-v5p-slice;tpu-v5-lite-podslice;tpu-v6e-slice
-type WorkerType string
+// +kubebuilder:validation:Enum=ct6e-standard-4t;ct6e-standard-8t;ct5p-hightpu-4t;ct5lp-hightpu-4t;ct5lp-hightpu-8t;ct4p-hightpu-4t
+type MachineType string
 
 const (
-	tpu_v4_podslice      WorkerType = "tpu-v4-podslice"
-	tpu_v5p_slice        WorkerType = "tpu-v5p-slice"
-	tpu_v5_lite_podslice WorkerType = "tpu-v5-lite-podslice"
-	tpu_v6e_slice        WorkerType = "tpu-v6e-slice"
+	// v6e
+	Ct6e_standard_4t MachineType = "ct6e-standard-4t"
+	Ct6e_standard_8t MachineType = "ct6e-standard-8t"
+	// v5p
+	Ct5p_hightpu_4t MachineType = "ct5p-hightpu-4t"
+	// v5e
+	Ct5lp_hightpu_4t MachineType = "ct5lp-hightpu-4t"
+	Ct5lp_hightpu_8t MachineType = "ct5lp-hightpu-8t"
+	// v4
+	Ct4p_hightpu_4t MachineType = "ct4p-hightpu-4t"
 )
 
 // The WorkerSpec struct lists the specifications for the
 // Pathways workers.
 type WorkerSpec struct {
-	// This will translate to a nodeSelector of the form
+	// MachineType is GKE machine type.
+	// It will translate to a nodeSelector of the form
 	// cloud.google.com/gke-tpu-accelerator: tpu-v5-lite-podslice
-	Type WorkerType `json:"type"`
+	Type MachineType `json:"type"`
 
-	// This will translate to a nodeSelector of the form
+	// Topology will translate to a nodeSelector of the form
 	// cloud.google.com/gke-tpu-topology:2x2
 	Topology string `json:"topology"`
 
@@ -147,24 +134,44 @@ type ControllerSpec struct {
 	// Users may opt for "default" placement where scheduler places the
 	// RM pod and the proxy pod on the CPU nodepools by default. User
 	// workload will be deployed separately, as a pod.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="deploymentMode is immutable"
 	DeploymentMode DeploymentMode `json:"deploymentMode,omitempty"`
 
 	// UserPodTemplate accepts a pod composed of user's workload
 	// (and other) containers.
 	// https://pkg.go.dev/k8s.io/api/core/v1#PodTemplateSpec
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="userPodTemplate is immutable"
 	UserPodTemplate *corev1.PodTemplateSpec `json:"template,omitempty" protobuf:"bytes,6,opt,name=template"`
+}
+
+// PathwaysJobStatus defines the observed state of PathwaysJob
+type PathwaysJobStatus struct {
+
+	// Conditions help track the state of the PathwaysJob.
+	// PathwaysJob can be one of Pending, Running, Suspended, Completed, Failed.
+	// They contain a human readable message to provide additional details
+	// to the user. Condition types are mentioned in PathwaysConditionType.
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// Restarts tracks the number of times the PathwaysJob has restarted.
+	Restarts int32 `json:"restarts,omitempty"`
+
+	// TerminalState the state of the PathwaysJob when it finishes execution.
+	// It can be either Complete or Failed. Otherwise, it is empty by default.
+	TerminalState string `json:"terminalState,omitempty"`
 }
 
 type PathwaysConditionType string
 
 // These are built-in conditions for PathwaysJob.
 const (
-	// PathwaysJobPending means the PathwaysJob is constructed and/or may be
-	// deployed, but pods are yet to be scheduled on nodes.
+	// PathwaysJobPending means the PathwaysJob is being constructed and
+	// pods are yet to be scheduled on nodes.
 	PathwaysJobPending PathwaysConditionType = "Pending"
-	// PathwaysJobRunning means PathwaysJob has been scheduled and
-	// Pathways servers have started running.
+	// PathwaysJobRunning means the PathwaysJob has started running and
+	// the underlying JobSet is in progress.
 	PathwaysJobRunning PathwaysConditionType = "Running"
 	// PathwaysJobCompleted means the underlying JobSet has completed its
 	// execution.
@@ -174,44 +181,6 @@ const (
 	PathwaysJobFailed PathwaysConditionType = "Failed"
 	// PathwaysJobSuspended means the underlying Jobset is suspended.
 	PathwaysJobSuspended PathwaysConditionType = "Suspended"
-)
-
-type ControllerStatus struct {
-	// Status of the Pathways Controller
-	CurrentStatus *PathwaysComponentStatus `json:"currentStatus,omitempty"`
-}
-
-// ReplicatedJob Status in JobSet
-type WorkersStatus struct {
-	// Status aggregated over all TPU slices.
-	// One of - Pending, Running, Suspended, Completed, Failed.
-	AggregateWorkersStatus *PathwaysComponentStatus `json:"aggregateWorkersStatus,omitempty"`
-	// Status details on each TPU worker slice
-	WorkersSliceStatus []WorkerSliceStatus `json:"workersSliceStatus,omitempty"`
-}
-
-// Job Status in JobSet
-type WorkerSliceStatus struct {
-	// Individual TPU slice's status.
-	SliceStatus *PathwaysComponentStatus `json:"sliceStatus,omitempty"`
-	// Number of workers in the slice that are ready.
-	Ready int32 `json:"ready,omitempty"`
-}
-
-type PathwaysComponentStatus string
-
-// Pending - one of more jobs ready but not active.
-// Running - all jobs active.
-// Suspended - all jobs suspended.
-// Completed - all jobs completed successfully.
-// Failed - one or more jobs failed.
-const (
-	PathwaysComponentStatusPending PathwaysComponentStatus = "Pending"
-	// Running will be based on a readiness probe
-	PathwaysComponentStatusRunning   PathwaysComponentStatus = "Running"
-	PathwaysComponentStatusCompleted PathwaysComponentStatus = "Completed"
-	PathwaysComponentStatusFailed    PathwaysComponentStatus = "Failed"
-	PathwaysComponentStatusSuspended PathwaysComponentStatus = "Suspended"
 )
 
 func init() {
