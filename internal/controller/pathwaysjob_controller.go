@@ -486,6 +486,10 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, isInitContainer b
 		args = append(args, "--enable_metrics_collection=true")
 	}
 
+	if pw.Spec.Workers[0].ElasticSlices > 0 {
+		args = append(args, "--temporary_flags_for_debugging=temporary_flag_for_debugging_enable_late_binding=false")
+	}
+
 	rmContainerSpec := corev1.Container{
 		Name:            "pathways-rm",
 		Image:           fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:%s", makeImageTagUsingPathwaysVersion(pw)),
@@ -524,6 +528,10 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*cor
 		args = append(args, "--enable_metrics_collection=true")
 	}
 
+	if pw.Spec.Workers[0].ElasticSlices > 0 {
+		args = append(args, fmt.Sprintf("--temporary_flags_for_debugging=temporary_flag_for_debugging_experimental_elastic_slices=true;;;temporary_flag_for_debugging_experimental_num_ok_missing_slices=%d", int32(pw.Spec.Workers[0].ElasticSlices)))
+	}
+
 	proxyContainerSpec := corev1.Container{
 		Name:            "pathways-proxy",
 		Image:           fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/proxy_server:%s", makeImageTagUsingPathwaysVersion(pw)),
@@ -544,6 +552,7 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*cor
 // Constructs Pathways worker replicated job for both 'colocated' and 'default' deployment modes.
 func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1alpha2.ReplicatedJob, error) {
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
+	backOffLimit := ptr.To(int32(4))
 
 	objectMeta := metav1.ObjectMeta{
 		Annotations: map[string]string{
@@ -561,12 +570,16 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 		args = append(args, "--enable_metrics_collection=true")
 	}
 
+	if pw.Spec.Workers[0].ElasticSlices > 0 {
+		backOffLimit = ptr.To(int32(1000))
+	}
+
 	workerJob := jobsetv1alpha2.ReplicatedJob{
 		Name:     "worker",
 		Replicas: int32(pw.Spec.Workers[0].NumSlices),
 		Template: batchv1.JobTemplateSpec{
 			Spec: batchv1.JobSpec{
-				BackoffLimit: ptr.To(int32(4)),
+				BackoffLimit: backOffLimit,
 				Completions:  ptr.To(int32(NumVMs)), // number of workers remember to change
 				Parallelism:  ptr.To(int32(NumVMs)), // number of workers  remember to change
 				Template: corev1.PodTemplateSpec{
