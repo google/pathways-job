@@ -26,9 +26,11 @@ import (
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Namespaced
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="TerminalState",JSONPath=".status.terminalState",type=string,description="Final state of PathwaysJob"
-// +kubebuilder:printcolumn:name="Status",type="string",priority=0,JSONPath=".status.condition.type"
-// +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type=date,description="Time this PathwaysJob was created"
+// +kubebuilder:printcolumn:name="TerminalState",priority=0,JSONPath=".status.terminalState",type=string,description="Final state of the PathwaysJob"
+// +kubebuilder:printcolumn:name="Completed",type="string",JSONPath=".status.conditions[?(@.type==\"Completed\")].status"
+// +kubebuilder:printcolumn:name="Failed",type="string",JSONPath=".status.conditions[?(@.type==\"Failed\")].status"
+// +kubebuilder:printcolumn:name="Suspended",type="string",JSONPath=".status.conditions[?(@.type==\"Suspended\")].status"
+// +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type=date,description="Creation time for the PathwaysJob"
 type PathwaysJob struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -146,13 +148,12 @@ type ControllerSpec struct {
 // PathwaysJobStatus defines the observed state of PathwaysJob
 type PathwaysJobStatus struct {
 
-	// Aggregate  of the PathwaysJob workload, based on worker and
-	// controller statuses.
-	// One of - Pending or Running, Suspended, Completed, Failed.
-	// Contains a human readable message to provide additional details to the
-	// user. Condition are mentioned in PathwaysConditionType.
+	// Conditions help track the state of the PathwaysJob.
+	// PathwaysJob can be one of Pending, Running, Suspended, Completed, Failed.
+	// They contain a human readable message to provide additional details
+	// to the user. Condition types are mentioned in PathwaysConditionType.
 	// +optional
-	Condition metav1.Condition `json:"condition,omitempty"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// Restarts tracks the number of times the PathwaysJob has restarted.
 	Restarts int32 `json:"restarts,omitempty"`
@@ -166,9 +167,12 @@ type PathwaysConditionType string
 
 // These are built-in conditions for PathwaysJob.
 const (
-	// PathwaysJobPendingOrRunning means the PathwaysJob is constructed and/or may be
-	// deployed, but pods are yet to be scheduled on nodes.
-	PathwaysJobPendingOrRunning PathwaysConditionType = "PendingOrRunning"
+	// PathwaysJobPending means the PathwaysJob is being constructed and
+	// pods are yet to be scheduled on nodes.
+	PathwaysJobPending PathwaysConditionType = "Pending"
+	// PathwaysJobRunning means the PathwaysJob has started running and
+	// the underlying JobSet is in progress.
+	PathwaysJobRunning PathwaysConditionType = "Running"
 	// PathwaysJobCompleted means the underlying JobSet has completed its
 	// execution.
 	PathwaysJobCompleted PathwaysConditionType = "Completed"

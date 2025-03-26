@@ -145,33 +145,28 @@ func (r *PathwaysJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	kubeconfig := ctrl.GetConfigOrDie()
 	jobSetClient := jobsetclient.NewForConfigOrDie(kubeconfig)
 
-	// 2.1 Figure out if PathwaysJob is already present
-	// if it is the case, there is nothing to do.
-
+	// 3. Figure out if PathwaysJob is already present.
 	childJobSet, err := r.getChildJobSet(ctx, pw, jobSetClient)
 	if err != nil {
 		log.Info("PathwaysJob: can't find JobSet, may create one!")
-		// return ctrl.Result{}, err
 	} else if childJobSet != nil {
 		log.Info("PathwaysJob: JobSet exists, not creating")
-		// 2.2 Find out JobSet's status
+		// 2.2 Find out JobSet's status and update the PathwaysJobStatus accordingly.
 		r.setPathwaysJobStatusBasedOnJobSetStatus(ctx, pw, childJobSet)
+		if pw.Status.TerminalState != "" {
+			log.Info("PathwaysJob: DONE.")
+		}
 		return ctrl.Result{}, nil
 	}
 
-	// 3. Update the cluster - create update and delete other resources
+	// 3. Create a child JobSet in PathwaysJob.
 	log.Info("PathwaysJob: creating JobSet \n")
 	if err := r.createJobSet(ctx, pw, jobSetClient); err != nil {
+		pw.Status.TerminalState = string(pathwaysjob.PathwaysJobFailed)
+		r.Status().Update(ctx, pw)
 		log.Error(err, "PathwaysJob: failed to create JobSet")
 		return ctrl.Result{}, err
 	}
-
-	//4. Update the object's status using Conditions
-	childJobSet, _ = r.getChildJobSet(ctx, pw, jobSetClient)
-	r.setPathwaysJobStatusBasedOnJobSetStatus(ctx, pw, childJobSet)
-
-	//5. Return a result
-	log.Info("PathwaysJob: DONE DONE DONE!")
 	return ctrl.Result{}, nil
 }
 
@@ -260,48 +255,115 @@ func (r *PathwaysJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// ---------------------- PATHWAYS HELPERS --------------------------
+// ---------------------- PATHWAYSJOB HELPERS --------------------------
 
 // Find the status of the underlying JobSet for 'colocated' or 'default' deployment modes.
+// Update the conditions within PathwaysJobStatus and persist the changes to the PathwaysJobStatus.
 func (r *PathwaysJobReconciler) setPathwaysJobStatusBasedOnJobSetStatus(ctx context.Context, pw *pathwaysjob.PathwaysJob, js *jobsetv1alpha2.JobSet) {
 	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
 	ctx = ctrl.LoggerInto(ctx, log)
 
-	if len(js.Status.Conditions) == 0 && pw.Status.Condition.Type != string(pathwaysjob.PathwaysJobPendingOrRunning) {
-		pw.Status.Condition = *makePendingOrRunningCondition()
-		log.Info("PathwaysJob PendingOrRunningCondition.")
+	if len(js.Status.Conditions) == 0 {
+		log.Info("PathwaysJob setPathwaysJobStatusBasedOnJobSetStatus: No conditions found in JobSet yet.")
+		return
 	}
+	var pathwaysCondition *metav1.Condition
+	var persistNeeded bool
 
-	for _, c := range js.Status.Conditions {
-		if c.Type == string(jobsetv1alpha2.JobSetStartupPolicyCompleted) ||
-			c.Type == string(jobsetv1alpha2.JobSetStartupPolicyInProgress) && c.Status == metav1.ConditionTrue {
-			pw.Status.Condition = *makePendingOrRunningCondition()
-			log.Info("\n\n PathwaysJob setPathwaysJobStatusBasedOnJobSetStatus: START STATE", "Condition ", pw.Status.Condition.Type, "Status", pw.Status.Condition.Status, "Reason ", pw.Status.Condition.Reason, "Message", pw.Status.Condition.Message)
+	if len(js.Status.Conditions) > 0 {
+		c := js.Status.Conditions[len(js.Status.Conditions)-1] // last condition of JobSet represents the current state of JobSet
+		// If PathwaysJob is in terminal state or JobSet condition is not valid, no further action is needed.
+		if pw.Status.TerminalState != "" {
+			log.Info("PathwaysJob setPathwaysJobStatusBasedOnJobSetStatus: in TERMINAL state")
+		}
+		if c.Status != metav1.ConditionTrue {
+			log.Info("PathwaysJob setPathwaysJobStatusBasedOnJobSetStatus: invalid JobSet condition")
+			return
 		}
 
-		if c.Type == string(jobsetv1alpha2.JobSetSuspended) && c.Status == metav1.ConditionTrue {
-			pw.Status.Condition = *makeSuspendCondition(c)
+		if c.Type == string(jobsetv1alpha2.JobSetStartupPolicyInProgress) && c.Status == metav1.ConditionTrue {
+			// If JobSet is in JobSetStartupPolicyInProgress state, PathwaysJob will be in PathwaysJobPending state
+			pathwaysCondition = makePendingCondition(c)
+		}
+		if c.Type == string(jobsetv1alpha2.JobSetStartupPolicyCompleted) && c.Status == metav1.ConditionTrue {
+			// If JobSet is in JobSetStartupPolicyCompleted state, PathwaysJob will be in PathwaysJobRunning state
+			pathwaysCondition = makeRunningCondition(c)
+		} else if c.Type == string(jobsetv1alpha2.JobSetSuspended) && c.Status == metav1.ConditionTrue && pw.Status.TerminalState == "" {
+			// If JobSet is in JobSetSuspended state, PathwaysJob will be in PathwaysJobSuspended state
+			pathwaysCondition = makeSuspendCondition(c)
 		} else if c.Type == string(jobsetv1alpha2.JobSetCompleted) && c.Status == metav1.ConditionTrue {
-			pw.Status.Condition = *makeCompletedCondition(c)
+			// If JobSet is in JobSetCompleted state, PathwaysJob will be in PathwaysJobCompleted state
+			pathwaysCondition = makeCompletedCondition(c)
 			pw.Status.TerminalState = string(pathwaysjob.PathwaysJobCompleted)
 		} else if c.Type == string(jobsetv1alpha2.JobSetFailed) && c.Status == metav1.ConditionTrue {
-			pw.Status.Condition = *makeFailedCondition(c)
+			// If JobSet is in JobSetFailed state, PathwaysJob will be in PathwaysJobFailed state
+			pathwaysCondition = makeFailedCondition(c)
 			pw.Status.TerminalState = string(pathwaysjob.PathwaysJobFailed)
 		}
 
-		if (c.Type == string(jobsetv1alpha2.JobSetCompleted) || c.Type == string(jobsetv1alpha2.JobSetFailed)) && c.Status == metav1.ConditionTrue {
-			log.Info("PathwaysJob setPathwaysJobStatusBasedOnJobSetStatus: TERMINAL state", "JobSet condition type ", c.Type, "Reason ", c.Reason, "Message", c.Message, "Pathways condition type", pw.Status.Condition.Type, "Pathways TerminalState", pw.Status.TerminalState)
+		// Persist PathwaysJob status update
+		persistNeeded = checkandUpdateConditionsIfNeeded(pw, pathwaysCondition)
+		if persistNeeded {
+			if err := r.Status().Update(ctx, pw); err != nil {
+				log.Error(err, "updating pathwaysjob status in setPathwaysJobStatusBasedOnJobSetStatus")
+			}
+			log.Info("PathwaysJob setPathwaysJobStatusBasedOnJobSetStatus: Status updated successfully!", "Condition ", pw.Status.Conditions[len(pw.Status.Conditions)-1].Type, "Status", pw.Status.Conditions[len(pw.Status.Conditions)-1].Status, "Reason ", pw.Status.Conditions[len(pw.Status.Conditions)-1].Reason, "Message", pw.Status.Conditions[len(pw.Status.Conditions)-1].Message)
 		}
 	}
+}
+
+// Check current PathwaysJob condition with new PathwaysJob condition and update if needed.
+func checkandUpdateConditionsIfNeeded(pw *pathwaysjob.PathwaysJob, newCondition *metav1.Condition) bool {
+	// currentCondition is pw.Status.Conditions[len(pw.Status.Conditions)-1]
+	// No condition is tracked in PathwaysJob currently and the new condition is valid,
+	// append the new condition.
+	if len(pw.Status.Conditions) == 0 && newCondition.Status == metav1.ConditionTrue {
+		pw.Status.Conditions = append(pw.Status.Conditions, *newCondition)
+		return true
+	}
+	// If new condition is valid and is not the same as the current condition type,
+	// then invalidate the old condition and append the new condition.
+	if string(pw.Status.Conditions[len(pw.Status.Conditions)-1].Type) != string(newCondition.Type) && newCondition.Status == metav1.ConditionTrue {
+		pw.Status.Conditions[len(pw.Status.Conditions)-1].Status = metav1.ConditionFalse
+		pw.Status.Conditions = append(pw.Status.Conditions, *newCondition)
+		return true
+	}
+	// In all other cases, no update is required.
+	return false
+}
+
+// Construct the Pending condition for PathwaysJob
+func makePendingCondition(jsCondition metav1.Condition) *metav1.Condition {
+	pendingCondition := metav1.Condition{
+		Type:               string(pathwaysjob.PathwaysJobPending),
+		Status:             metav1.ConditionTrue,
+		Reason:             jsCondition.Reason,
+		Message:            "pathwaysJob pending : jobSet is getting created",
+		LastTransitionTime: jsCondition.LastTransitionTime,
+	}
+	return &pendingCondition
+}
+
+// Construct the Running condition for PathwaysJob
+func makeRunningCondition(jsCondition metav1.Condition) *metav1.Condition {
+	runningCondition := metav1.Condition{
+		Type:               string(pathwaysjob.PathwaysJobRunning),
+		Status:             metav1.ConditionTrue,
+		Reason:             jsCondition.Reason,
+		Message:            "pathwaysJob running: jobSet is running",
+		LastTransitionTime: jsCondition.LastTransitionTime,
+	}
+	return &runningCondition
 }
 
 // Construct the Suspended condition for PathwaysJob
 func makeSuspendCondition(jsCondition metav1.Condition) *metav1.Condition {
 	suspendCondition := metav1.Condition{
-		Type:    string(pathwaysjob.PathwaysJobSuspended),
-		Status:  jsCondition.Status,
-		Reason:  jsCondition.Reason,
-		Message: "pathwaysJob suspended:" + jsCondition.Message,
+		Type:               string(pathwaysjob.PathwaysJobSuspended),
+		Status:             jsCondition.Status,
+		Reason:             jsCondition.Reason,
+		Message:            "pathwaysJob suspended: " + jsCondition.Message,
+		LastTransitionTime: jsCondition.LastTransitionTime,
 	}
 	return &suspendCondition
 }
@@ -309,10 +371,11 @@ func makeSuspendCondition(jsCondition metav1.Condition) *metav1.Condition {
 // Construct the Completed condition for PathwaysJob
 func makeCompletedCondition(jsCondition metav1.Condition) *metav1.Condition {
 	completedCondition := metav1.Condition{
-		Type:    string(pathwaysjob.PathwaysJobCompleted),
-		Status:  jsCondition.Status,
-		Reason:  jsCondition.Reason,
-		Message: "pathwaysJob completed:" + jsCondition.Message,
+		Type:               string(pathwaysjob.PathwaysJobCompleted),
+		Status:             jsCondition.Status,
+		Reason:             jsCondition.Reason,
+		Message:            "pathwaysJob completed: " + jsCondition.Message,
+		LastTransitionTime: jsCondition.LastTransitionTime,
 	}
 	return &completedCondition
 }
@@ -320,23 +383,13 @@ func makeCompletedCondition(jsCondition metav1.Condition) *metav1.Condition {
 // Construct the Failed condition for PathwaysJob
 func makeFailedCondition(jsCondition metav1.Condition) *metav1.Condition {
 	failedCondition := metav1.Condition{
-		Type:    string(pathwaysjob.PathwaysJobFailed),
-		Status:  jsCondition.Status,
-		Reason:  jsCondition.Reason,
-		Message: "pathwaysJob failed:" + jsCondition.Message,
+		Type:               string(pathwaysjob.PathwaysJobFailed),
+		Status:             jsCondition.Status,
+		Reason:             jsCondition.Reason,
+		Message:            "pathwaysJob failed: " + jsCondition.Message,
+		LastTransitionTime: jsCondition.LastTransitionTime,
 	}
 	return &failedCondition
-}
-
-// Construct the Pending or Running condition for PathwaysJob
-func makePendingOrRunningCondition() *metav1.Condition {
-	pendingOrRunningCondition := metav1.Condition{
-		Type:    string(pathwaysjob.PathwaysJobPendingOrRunning),
-		Status:  metav1.ConditionTrue,
-		Reason:  "PathwaysJob Pending or Running",
-		Message: "pathwaysJob pending or running: jobSet for is getting created or running.",
-	}
-	return &pendingOrRunningCondition
 }
 
 // Find TPU version from the worker's type (- used to determine Pathways instance_type)
