@@ -637,7 +637,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 		Replicas: int32(pw.Spec.Workers[0].NumSlices),
 		Template: batchv1.JobTemplateSpec{
 			Spec: batchv1.JobSpec{
-				BackoffLimit: ptr.To(int32(4)),
+				BackoffLimit: backOffLimit,
 				Completions:  ptr.To(int32(NumVMs)), // number of workers remember to change
 				Parallelism:  ptr.To(int32(NumVMs)), // number of workers  remember to change
 				Template: corev1.PodTemplateSpec{

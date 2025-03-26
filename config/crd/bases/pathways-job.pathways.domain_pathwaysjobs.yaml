@@ -8246,6 +8246,12 @@ spec:
                     The WorkerSpec struct lists the specifications for the
                     Pathways workers.
                   properties:
+                    elasticSlices:
+                      description: |-
+                        Enables elasticity and sets the maximum number of slices
+                        that can be missing at any given time.
+                      format: int32
+                      type: integer
                     numSlices:
                       description: Number of TPU slices requested for the Pathways
                         workers.
