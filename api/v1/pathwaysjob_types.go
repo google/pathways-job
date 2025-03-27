@@ -133,9 +133,9 @@ type WorkerSpec struct {
 	// Number of TPU slices requested for the Pathways workers.
 	NumSlices int32 `json:"numSlices"`
 
-	// Enables elasticity and sets the maximum number of slices
-	// that can be missing at any given time.
-	ElasticSlices int32 `json:"elasticSlices,omitempty"`
+	// Maximum times the worker slices can be restarted.
+	// Used for elastic slices.
+	MaxSliceRestarts int32 `json:"maxWorkerRestarts,omitempty"`
 }
 
 // The ControllerSpec struct lists the specifications for the
@@ -161,6 +161,10 @@ type ControllerSpec struct {
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="userPodTemplate is immutable"
 	UserPodTemplate *corev1.PodTemplateSpec `json:"template,omitempty" protobuf:"bytes,6,opt,name=template"`
+
+	// Enables elasticity and sets the maximum number of slices
+	// that can be missing at any given time.
+	ElasticSlices int32 `json:"elasticSlices,omitempty"`
 }
 
 // CustomComponents struct lists the Pathways server/ Pathways Proxy/ Pathways worker

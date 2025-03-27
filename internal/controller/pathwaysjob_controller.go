@@ -562,6 +562,10 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*cor
 	// Append all the custom pathways proxy server flags to the existing flags.
 	args = AppendCustomComponentFlags(pw, pathwaysjob.PathwaysProxy, args)
 
+	if pw.Spec.Controller.ElasticSlices > 0 {
+		args = append(args, fmt.Sprintf("--num_elastic_slices=%d", int32(pw.Spec.Controller.ElasticSlices)))
+	}
+
 	proxyContainerSpec := corev1.Container{
 		Name:            "pathways-proxy",
 		Image:           MakeComponentImage(pw, pathwaysjob.PathwaysProxy),
@@ -613,6 +617,7 @@ func MakeColocateHeadWithWorkersPythonInitContainers(pw *pathwaysjob.PathwaysJob
 func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1alpha2.ReplicatedJob, error) {
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
 	initContainers, _ := MakeColocateHeadWithWorkersPythonInitContainers(pw)
+	backOffLimit := 0
 
 	objectMeta := metav1.ObjectMeta{
 		Annotations: map[string]string{
@@ -631,6 +636,10 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 	}
 	// Append all the custom pathways worker flags to the existing flags.
 	args = AppendCustomComponentFlags(pw, pathwaysjob.PathwaysWorker, args)
+
+	if pw.Spec.Controller.ElasticSlices > 0 && pw.Spec.Controller.MaxSliceRestarts > 0 {
+		backOffLimit = ptr.To(int32(NumVMs * pw.Spec.Controller.MaxSliceRestarts))
+	}
 
 	workerJob := jobsetv1alpha2.ReplicatedJob{
 		Name:     "worker",

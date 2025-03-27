@@ -8252,6 +8252,10 @@ spec:
                         that can be missing at any given time.
                       format: int32
                       type: integer
+                    maxWorkerRestarts:
+                      description: Maximum times a worker can be restarted.
+                      format: int32
+                      type: integer
                     numSlices:
                       description: Number of TPU slices requested for the Pathways
                         workers.
