@@ -126,6 +126,9 @@ type WorkerSpec struct {
 	// Enables elasticity and sets the maximum number of slices
 	// that can be missing at any given time.
 	ElasticSlices int32 `json:"elasticSlices,omitempty"`
+
+	// Maximum times a worker can be restarted.
+	MaxWorkerRestarts int32 `json:"maxWorkerRestarts,omitempty"`
 }
 
 // The ControllerSpec struct lists the specifications for the
