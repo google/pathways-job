@@ -8100,6 +8100,7 @@ spec:
                       - pathways_server
                       - worker
                       - proxy_server
+                      - remote_python_sidecar
                       type: string
                     customFlags:
                       description: Custom flags to be provided to this component.
@@ -8112,7 +8113,7 @@ spec:
                   required:
                   - componentType
                   type: object
-                maxItems: 3
+                maxItems: 4
                 type: array
                 x-kubernetes-list-map-keys:
                 - componentType
@@ -8158,9 +8159,6 @@ spec:
                         workers.
                       format: int32
                       type: integer
-                    remotePythonImage:
-                      description: Enable remote python using this sidecar image.
-                      type: string
                     topology:
                       description: |-
                         Topology will translate to a nodeSelector of the form

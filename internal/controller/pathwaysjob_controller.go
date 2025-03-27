@@ -55,8 +55,8 @@ var (
 
 const (
 	PathwaysHeadJobName             = "pathways-head"
-	DefaultPathwaysRMAndWorkerImage = "us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:latest"
-	DefaultPathwaysProxyImage       = "us-docker.pkg.dev/cloud-tpu-v2-images/pathways/proxy_server:latest"
+	DefaultPathwaysRMAndWorkerImage = "us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server"
+	DefaultPathwaysProxyImage       = "us-docker.pkg.dev/cloud-tpu-v2-images/pathways/proxy_server"
 )
 
 // Map to convert machine type to TPU version
@@ -581,31 +581,32 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*cor
 
 // Construct the initContainers to enable remote python on Pathways workers.
 func MakeRemotePythonInitContainers(pw *pathwaysjob.PathwaysJob) ([]corev1.Container, error) {
-	truth := true
 	restartPolicy := corev1.ContainerRestartPolicyAlways
 
-	if pw.Spec.Workers[0].RemotePythonImage != "" {
-		remotePythonContainer := corev1.Container{
-			Name:            "remote-python-sidecar",
-			Image:           pw.Spec.Workers[0].RemotePythonImage,
-			ImagePullPolicy: "Always",
-			SecurityContext: &corev1.SecurityContext{Privileged: &truth},
-			Env: []corev1.EnvVar{
-				{Name: "GRPC_SERVER_ADDRESS", Value: "'0.0.0.0:50051'"},
-			},
-			Ports: []corev1.ContainerPort{{ContainerPort: 50051}},
-			VolumeMounts: []corev1.VolumeMount{
-				{
-					Name:      "shared-tmp",
-					MountPath: "/tmp",
-				},
-			},
-			RestartPolicy: &restartPolicy,
+	if pw.Spec.CustomComponents != nil {
+		for _, component := range pw.Spec.CustomComponents {
+			if component.ComponentType == pathwaysjob.PathwaysRemotePythonSidecar && component.Image != "" {
+				remotePythonContainer := corev1.Container{
+					Name:            "remote-python-sidecar",
+					Image:           component.Image,
+					ImagePullPolicy: "Always",
+					Env: []corev1.EnvVar{
+						{Name: "GRPC_SERVER_ADDRESS", Value: "'0.0.0.0:50051'"},
+					},
+					Ports: []corev1.ContainerPort{{ContainerPort: 50051}},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "shared-tmp",
+							MountPath: "/tmp",
+						},
+					},
+					RestartPolicy: &restartPolicy,
+				}
+				return []corev1.Container{remotePythonContainer}, nil
+			}
 		}
-		return []corev1.Container{remotePythonContainer}, nil
-	} else {
-		return nil, nil
 	}
+	return nil, nil
 }
 
 // Constructs Pathways worker replicated job for both 'colocated' and 'default' deployment modes.
@@ -647,8 +648,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 								Name:            "pathways-worker",
 								Image:           MakeComponentImage(pw, pathwaysjob.PathwaysWorker),
 								ImagePullPolicy: "Always",
-								// SecurityContext: &corev1.SecurityContext{Privileged: &truth},
-								Args: args,
+								Args:            args,
 								Env: []corev1.EnvVar{
 									{Name: "TPU_MIN_LOG_LEVEL", Value: "0"},
 									{Name: "TF_CPP_MIN_LOG_LEVEL", Value: "0"},

@@ -1,0 +1,53 @@
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: pathways-job.pathways.domain/v1
+kind: PathwaysJob
+metadata:
+  name: pathways-remotepython-trial
+spec:
+  maxRestarts: 0
+  customComponents:
+  - componentType: remote_python_sidecar
+    image: <Remote python sidecar image> # Provide remote python sidecar image
+  workers:
+  - type: ct5p-hightpu-4t
+    topology: 4x4x4
+    numSlices: 2
+  pathwaysDir: "gs://<test-bucket>/tmp" #This bucket needs to be created in advance.
+  controller:
+    # #Pod template for training, default mode.
+    deploymentMode: default
+    template: # UserPodTemplate
+      spec:
+        containers:
+        - name: user
+          env:
+          - name: XCLOUD_ENVIRONMENT
+            value: GCP
+          - name: JAX_PLATFORMS
+            value: proxy
+          - name: JAX_BACKEND_TARGET
+            value: grpc://pathways-remotepython-trial-pathways-head-0-0.pathways-remotepython-trial:29000
+          image: python:3.13
+          imagePullPolicy: Always
+          command:
+          - /bin/sh
+          - -c
+          - |
+            pip install --upgrade pip
+            pip install -U --pre jax jaxlib -f https://storage.googleapis.com/jax-releases/jax_nightly_releases.html
+            pip install pathwaysutils
+            python -c "import jax; import pathwaysutils; print(\"Number of JAX devices is\", len(jax.devices()))"
+

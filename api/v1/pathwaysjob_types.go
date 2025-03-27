@@ -87,7 +87,7 @@ type PathwaysJobSpec struct {
 
 	// PathwaysJob components that can be customized.
 	// +optional
-	// +kubebuilder:validation:MaxItems=3
+	// +kubebuilder:validation:MaxItems=4
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="custom components are immutable"
 	// +listType=map
 	// +listMapKey=componentType
@@ -132,10 +132,6 @@ type WorkerSpec struct {
 
 	// Number of TPU slices requested for the Pathways workers.
 	NumSlices int32 `json:"numSlices"`
-
-	// Enable remote python using this sidecar image.
-	// +optional
-	RemotePythonImage string `json:"remotePythonImage,omitempty"`
 }
 
 // The ControllerSpec struct lists the specifications for the
@@ -179,13 +175,18 @@ type CustomComponentsSpec struct {
 	CustomFlags []string `json:"customFlags,omitempty"`
 }
 
-// +kubebuilder:validation:Enum=pathways_server;worker;proxy_server
+// +kubebuilder:validation:Enum=pathways_server;worker;proxy_server;remote_python_sidecar
 type PathwaysComponentType string
 
 const (
+	// Pathways resource manager component
 	PathwaysServer PathwaysComponentType = "pathways_server"
+	// Pathways proxy component
+	PathwaysProxy PathwaysComponentType = "proxy_server"
+	// Pathways worker component
 	PathwaysWorker PathwaysComponentType = "worker"
-	PathwaysProxy  PathwaysComponentType = "proxy_server"
+	//Pathways remote python sidecar component, hosted on the workers.
+	PathwaysRemotePythonSidecar PathwaysComponentType = "remote_python_sidecar"
 )
 
 // PathwaysJobStatus defines the observed state of PathwaysJob
