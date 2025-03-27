@@ -473,17 +473,24 @@ func MakeSuccessPolicy(pw *pathwaysjob.PathwaysJob) *jobsetv1alpha2.SuccessPolic
 
 // Constructs the Pathways resource manager container spec for the underlying JobSet
 func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*corev1.Container, error) {
+
+	args := []string{
+		"--server_port=29001",
+		fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
+		"--node_type=resource_manager",
+		fmt.Sprintf("--instance_count=%d", int32(pw.Spec.Workers[0].NumSlices)),
+		fmt.Sprintf("--instance_type=%s", InstanceType),
+	}
+
+	if pw.Spec.Controller.EnableMetricsCollection {
+		args = append(args, "--enable_metrics_collection=true")
+	}
+
 	rmContainerSpec := corev1.Container{
 		Name:            "pathways-rm",
 		Image:           fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:%s", makeImageTagUsingPathwaysVersion(pw)),
 		ImagePullPolicy: "Always",
-		Args: []string{
-			"--server_port=29001",
-			fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
-			"--node_type=resource_manager",
-			fmt.Sprintf("--instance_count=%d", int32(pw.Spec.Workers[0].NumSlices)),
-			fmt.Sprintf("--instance_type=%s", InstanceType),
-		},
+		Args:            args,
 		Env: []corev1.EnvVar{
 			{Name: "REPLICATED_JOB_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/replicatedjob-name']"}}},
 			{Name: "JOBSET_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/jobset-name']"}}},
@@ -507,16 +514,22 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, isInitContainer b
 // Constructs the Pathways proxy container spec for the underlying JobSet
 func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*corev1.Container, error) {
 
+	args := []string{
+		"--server_port=29000",
+		fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:29001", pw.GetName(), PathwaysHeadJobName, pw.GetName()),
+		fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
+	}
+
+	if pw.Spec.Controller.EnableMetricsCollection {
+		args = append(args, "--enable_metrics_collection=true")
+	}
+
 	proxyContainerSpec := corev1.Container{
 		Name:            "pathways-proxy",
 		Image:           fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/proxy_server:%s", makeImageTagUsingPathwaysVersion(pw)),
 		ImagePullPolicy: "Always",
-		Args: []string{
-			"--server_port=29000",
-			fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:29001", pw.GetName(), PathwaysHeadJobName, pw.GetName()),
-			fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
-		},
-		Ports: []corev1.ContainerPort{{ContainerPort: 29000}},
+		Args:            args,
+		Ports:           []corev1.ContainerPort{{ContainerPort: 29000}},
 		// Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(100000000000, resource.DecimalSI)}}, //100GiB
 	}
 	// Init containers can have restartPolicy but regular containers cannot have restartPolicy.
@@ -538,6 +551,16 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 		},
 	}
 
+	args := []string{
+		"--server_port=29005",
+		fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:29001", pw.GetName(), PathwaysHeadJobName, pw.GetName()),
+		fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
+	}
+
+	if pw.Spec.Controller.EnableMetricsCollection {
+		args = append(args, "--enable_metrics_collection=true")
+	}
+
 	workerJob := jobsetv1alpha2.ReplicatedJob{
 		Name:     "worker",
 		Replicas: int32(pw.Spec.Workers[0].NumSlices),
@@ -555,11 +578,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 								Image:           fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:%s", makeImageTagUsingPathwaysVersion(pw)),
 								ImagePullPolicy: "Always",
 								// SecurityContext: &corev1.SecurityContext{Privileged: &truth},
-								Args: []string{
-									"--server_port=29005",
-									fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:29001", pw.GetName(), PathwaysHeadJobName, pw.GetName()),
-									fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
-								},
+								Args: args,
 								Env: []corev1.EnvVar{
 									{Name: "TPU_MIN_LOG_LEVEL", Value: "0"},
 									{Name: "TF_CPP_MIN_LOG_LEVEL", Value: "0"},

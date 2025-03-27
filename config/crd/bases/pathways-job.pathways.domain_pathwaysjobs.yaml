@@ -77,6 +77,12 @@ spec:
                     x-kubernetes-validations:
                     - message: deploymentMode is immutable
                       rule: self == oldSelf
+                  enableMetricsCollection:
+                    description: Enables metrics collection for the PathwaysJob
+                    type: boolean
+                    x-kubernetes-validations:
+                    - message: enableMetricsCollection is immutable
+                      rule: self == oldSelf
                   template:
                     description: |-
                       UserPodTemplate accepts a pod composed of user's workload

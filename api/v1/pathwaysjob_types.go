@@ -137,6 +137,10 @@ type ControllerSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="deploymentMode is immutable"
 	DeploymentMode DeploymentMode `json:"deploymentMode,omitempty"`
 
+	// Enables metrics collection for the PathwaysJob
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="enableMetricsCollection is immutable"
+	EnableMetricsCollection bool `json:"enableMetricsCollection,omitempty"`
+
 	// UserPodTemplate accepts a pod composed of user's workload
 	// (and other) containers.
 	// https://pkg.go.dev/k8s.io/api/core/v1#PodTemplateSpec
