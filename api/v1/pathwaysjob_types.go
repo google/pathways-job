@@ -122,6 +122,13 @@ type WorkerSpec struct {
 
 	// Number of TPU slices requested for the Pathways workers.
 	NumSlices int32 `json:"numSlices"`
+
+	// Enables elasticity and sets the maximum number of slices
+	// that can be missing at any given time.
+	ElasticSlices int32 `json:"elasticSlices,omitempty"`
+
+	// Maximum times a worker can be restarted.
+	MaxWorkerRestarts int32 `json:"maxWorkerRestarts,omitempty"`
 }
 
 // The ControllerSpec struct lists the specifications for the

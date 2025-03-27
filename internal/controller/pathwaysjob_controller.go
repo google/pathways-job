@@ -524,6 +524,10 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*cor
 		args = append(args, "--enable_metrics_collection=true")
 	}
 
+	if pw.Spec.Workers[0].ElasticSlices > 0 {
+		args = append(args, fmt.Sprintf("--num_elastic_slices=%d", int32(pw.Spec.Workers[0].ElasticSlices)))
+	}
+
 	proxyContainerSpec := corev1.Container{
 		Name:            "pathways-proxy",
 		Image:           fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/proxy_server:%s", makeImageTagUsingPathwaysVersion(pw)),
@@ -544,6 +548,7 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*cor
 // Constructs Pathways worker replicated job for both 'colocated' and 'default' deployment modes.
 func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1alpha2.ReplicatedJob, error) {
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
+	backOffLimit := ptr.To(int32(4))
 
 	objectMeta := metav1.ObjectMeta{
 		Annotations: map[string]string{
@@ -561,12 +566,16 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 		args = append(args, "--enable_metrics_collection=true")
 	}
 
+	if pw.Spec.Workers[0].ElasticSlices > 0 && pw.Spec.Workers[0].MaxWorkerRestarts > 0 {
+		backOffLimit = ptr.To(int32(NumVMs * pw.Spec.Workers[0].MaxWorkerRestarts))
+	}
+
 	workerJob := jobsetv1alpha2.ReplicatedJob{
 		Name:     "worker",
 		Replicas: int32(pw.Spec.Workers[0].NumSlices),
 		Template: batchv1.JobTemplateSpec{
 			Spec: batchv1.JobSpec{
-				BackoffLimit: ptr.To(int32(4)),
+				BackoffLimit: backOffLimit,
 				Completions:  ptr.To(int32(NumVMs)), // number of workers remember to change
 				Parallelism:  ptr.To(int32(NumVMs)), // number of workers  remember to change
 				Template: corev1.PodTemplateSpec{
@@ -577,8 +586,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 								Name:            "pathways-worker",
 								Image:           fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:%s", makeImageTagUsingPathwaysVersion(pw)),
 								ImagePullPolicy: "Always",
-								// SecurityContext: &corev1.SecurityContext{Privileged: &truth},
-								Args: args,
+								Args:            args,
 								Env: []corev1.EnvVar{
 									{Name: "TPU_MIN_LOG_LEVEL", Value: "0"},
 									{Name: "TF_CPP_MIN_LOG_LEVEL", Value: "0"},
