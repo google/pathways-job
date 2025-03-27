@@ -82,6 +82,10 @@ type PathwaysJobSpec struct {
 
 	// Pathways single-controller specifications and user workload.
 	Controller *ControllerSpec `json:"controller"`
+
+	// PathwaysJob components that can be customized.
+	// +optional
+	CustomComponents *CustomComponentsSpec `json:"customComponents,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=colocate;default
@@ -122,6 +126,10 @@ type WorkerSpec struct {
 
 	// Number of TPU slices requested for the Pathways workers.
 	NumSlices int32 `json:"numSlices"`
+
+	// Enable remote python using this sidecar image.
+	// +optional
+	RemotePythonImage string `json:"remotePythonImage,omitempty"`
 }
 
 // The ControllerSpec struct lists the specifications for the
@@ -135,7 +143,7 @@ type ControllerSpec struct {
 	// RM pod and the proxy pod on the CPU nodepools by default. User
 	// workload will be deployed separately, as a pod.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="deploymentMode is immutable"
-	DeploymentMode DeploymentMode `json:"deploymentMode,omitempty"`
+	DeploymentMode DeploymentMode `json:"deploymentMode"`
 
 	// Enables metrics collection for the PathwaysJob
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="enableMetricsCollection is immutable"
@@ -147,6 +155,30 @@ type ControllerSpec struct {
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="userPodTemplate is immutable"
 	UserPodTemplate *corev1.PodTemplateSpec `json:"template,omitempty" protobuf:"bytes,6,opt,name=template"`
+}
+
+// CustomComponents struct lists the PathwaysJob attributes
+// that can be customized by the user.
+type CustomComponentsSpec struct {
+	// Image for the Pathways Resource Manager.
+	// +optional
+	PathwaysServerImage string `json:"pathwaysServerImage,omitempty"`
+
+	// Image for the Pathways Proxy.
+	// +optional
+	ProxyServerImage string `json:"proxyServerImage,omitempty"`
+
+	// Custom RM flags
+	// +optional
+	CustomPathwaysServerFlags []string `json:"customPathwaysServerFlags,omitempty"`
+
+	// Custom Proxy flags
+	// +optional
+	CustomProxyServerFlags []string `json:"customProxyServerFlags,omitempty"`
+
+	// Custom Worker flags
+	// +optional
+	CustomWorkerFlags []string `json:"customWorkerFlags,omitempty"`
 }
 
 // PathwaysJobStatus defines the observed state of PathwaysJob

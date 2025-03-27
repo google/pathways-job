@@ -2,14 +2,14 @@
 PathwaysJob API is an OSS Kubernetes-native API, to deploy ML training and batch inference workloads, using Pathways on GKE. 
 //ToDo(roshanin) - add intro for Pathways.
 ## Description
-The PathwaysJob is an API that provides an easy way to run JAX workloads using Pathways. It support two modes of deployment.
+The PathwaysJob is an API that provides an easy way to run JAX workloads using Pathways. It support two modes of deployment. A PathwaysJob instance bundles the Pathways resource manager(RM) AKA Pathways server, the Pathways proxy server and the user workload containers into a single pod called "pathways-head". When the user pod is not provided (headless workloads), the "pathways-head" pod consists of the Pathways RM and the proxy server.
 ### Colocate mode
-The 'colocate' mode bundles the Pathways resource manager(RM), the Pathways proxy and the user workload containers into a single pod called "leader" and deploys them besides a "worker" pod on one of the TPU workers. This is preferred for Pathways batch inference workloads, where latency is crucial.
+The 'colocate' mode deploys the "pathways-head" pod besides a "worker" pod on one of the TPU workers. This is preferred for Pathways batch inference workloads, where latency is crucial.
 ### Default mode
-The default mode is preferred for Pathways training workloads where the worker utilizes the TPUs completely. The Pathways RM and Pathways proxy are scheduled as pods on a CPU nodepool and the "workers" are scheduled on TPUs.
-#### With a dockerized workload
-The user workload is also scheduled as a pod on the CPU nodepool.
-#### Headless mode for interactive supercomputing
+The "pathways-head" pod is schedule on a CPU nodepool and the "workers" are scheduled on TPUs. The default mode is preferred for Pathways training workloads where the worker utilizes the TPUs completely. 
+### With a dockerized workload
+The user workload is scheduled as a container within the "pathways-head" pod 
+### Headless mode for interactive supercomputing
 The user workload is typically on a Vertex AI notebook, so users can connect to the PathwaysJob via port-forwarding.
 
 ## Getting Started

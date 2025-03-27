@@ -471,6 +471,15 @@ func MakeSuccessPolicy(pw *pathwaysjob.PathwaysJob) *jobsetv1alpha2.SuccessPolic
 	}
 }
 
+// Pick the RM Image based on whether custom image or Pathways version are provided.
+func MakeResourceManagerAndWorkerImage(pw *pathwaysjob.PathwaysJob) string {
+	if pw.Spec.CustomComponents != nil && pw.Spec.CustomComponents.PathwaysServerImage != "" {
+		return pw.Spec.CustomComponents.PathwaysServerImage
+	} else {
+		return fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:%s", makeImageTagUsingPathwaysVersion(pw))
+	}
+}
+
 // Constructs the Pathways resource manager container spec for the underlying JobSet
 func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*corev1.Container, error) {
 
@@ -486,9 +495,14 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, isInitContainer b
 		args = append(args, "--enable_metrics_collection=true")
 	}
 
+	// Append all the custom pathways server flags to the existing flags.
+	if pw.Spec.CustomComponents != nil && pw.Spec.CustomComponents.CustomPathwaysServerFlags != nil {
+		args = append(args, pw.Spec.CustomComponents.CustomPathwaysServerFlags...)
+	}
+
 	rmContainerSpec := corev1.Container{
 		Name:            "pathways-rm",
-		Image:           fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:%s", makeImageTagUsingPathwaysVersion(pw)),
+		Image:           MakeResourceManagerAndWorkerImage(pw),
 		ImagePullPolicy: "Always",
 		Args:            args,
 		Env: []corev1.EnvVar{
@@ -511,6 +525,15 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, isInitContainer b
 	return &rmContainerSpec, nil
 }
 
+// Pick the Proxy Image based on whether custom image or Pathways version are provided.
+func MakeProxyImage(pw *pathwaysjob.PathwaysJob) string {
+	if pw.Spec.CustomComponents != nil && pw.Spec.CustomComponents.ProxyServerImage != "" {
+		return pw.Spec.CustomComponents.ProxyServerImage
+	} else {
+		return fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/proxy_server:%s", makeImageTagUsingPathwaysVersion(pw))
+	}
+}
+
 // Constructs the Pathways proxy container spec for the underlying JobSet
 func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*corev1.Container, error) {
 
@@ -524,9 +547,14 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*cor
 		args = append(args, "--enable_metrics_collection=true")
 	}
 
+	// Append all the custom proxy server flags to the existing flags.
+	if pw.Spec.CustomComponents != nil && pw.Spec.CustomComponents.CustomProxyServerFlags != nil {
+		args = append(args, pw.Spec.CustomComponents.CustomProxyServerFlags...)
+	}
+
 	proxyContainerSpec := corev1.Container{
 		Name:            "pathways-proxy",
-		Image:           fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/proxy_server:%s", makeImageTagUsingPathwaysVersion(pw)),
+		Image:           MakeProxyImage(pw),
 		ImagePullPolicy: "Always",
 		Args:            args,
 		Ports:           []corev1.ContainerPort{{ContainerPort: 29000}},
@@ -541,9 +569,39 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*cor
 	return &proxyContainerSpec, nil
 }
 
+// Construct the initContainers to enable remote python on Pathways workers.
+func MakeRemotePythonInitContainers(pw *pathwaysjob.PathwaysJob) ([]corev1.Container, error) {
+	truth := true
+	restartPolicy := corev1.ContainerRestartPolicyAlways
+
+	if pw.Spec.Workers[0].RemotePythonImage != "" {
+		remotePythonContainer := corev1.Container{
+			Name:            "remote-python-sidecar",
+			Image:           pw.Spec.Workers[0].RemotePythonImage,
+			ImagePullPolicy: "Always",
+			SecurityContext: &corev1.SecurityContext{Privileged: &truth},
+			Env: []corev1.EnvVar{
+				{Name: "GRPC_SERVER_ADDRESS", Value: "'0.0.0.0:50051'"},
+			},
+			Ports: []corev1.ContainerPort{{ContainerPort: 50051}},
+			VolumeMounts: []corev1.VolumeMount{
+				{
+					Name:      "shared-tmp",
+					MountPath: "/tmp",
+				},
+			},
+			RestartPolicy: &restartPolicy,
+		}
+		return []corev1.Container{remotePythonContainer}, nil
+	} else {
+		return nil, nil
+	}
+}
+
 // Constructs Pathways worker replicated job for both 'colocated' and 'default' deployment modes.
 func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1alpha2.ReplicatedJob, error) {
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
+	initContainers, _ := MakeRemotePythonInitContainers(pw)
 
 	objectMeta := metav1.ObjectMeta{
 		Annotations: map[string]string{
@@ -561,6 +619,11 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 		args = append(args, "--enable_metrics_collection=true")
 	}
 
+	// Append all the custom proxy server flags to the existing flags.
+	if pw.Spec.CustomComponents != nil && pw.Spec.CustomComponents.CustomWorkerFlags != nil {
+		args = append(args, pw.Spec.CustomComponents.CustomWorkerFlags...)
+	}
+
 	workerJob := jobsetv1alpha2.ReplicatedJob{
 		Name:     "worker",
 		Replicas: int32(pw.Spec.Workers[0].NumSlices),
@@ -575,7 +638,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 						Containers: []corev1.Container{
 							{
 								Name:            "pathways-worker",
-								Image:           fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:%s", makeImageTagUsingPathwaysVersion(pw)),
+								Image:           MakeResourceManagerAndWorkerImage(pw),
 								ImagePullPolicy: "Always",
 								// SecurityContext: &corev1.SecurityContext{Privileged: &truth},
 								Args: args,
@@ -594,6 +657,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 								Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"google.com/tpu": *resource.NewQuantity(4, resource.DecimalSI)}},
 							}, // end Pathways worker container
 						},
+						InitContainers: initContainers,
 						NodeSelector: map[string]string{
 							"cloud.google.com/gke-tpu-accelerator": GKEAcceleratorType,
 							"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,

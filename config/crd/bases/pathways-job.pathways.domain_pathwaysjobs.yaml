@@ -8084,6 +8084,31 @@ spec:
                     - message: userPodTemplate is immutable
                       rule: self == oldSelf
                 type: object
+              customComponents:
+                description: PathwaysJob components that can be customized.
+                properties:
+                  customPathwaysServerFlags:
+                    description: Custom RM flags
+                    items:
+                      type: string
+                    type: array
+                  customProxyServerFlags:
+                    description: Custom Proxy flags
+                    items:
+                      type: string
+                    type: array
+                  customWorkerFlags:
+                    description: Custom Worker flags
+                    items:
+                      type: string
+                    type: array
+                  pathwaysServerImage:
+                    description: Image for the Pathways Resource Manager.
+                    type: string
+                  proxyServerImage:
+                    description: Image for the Pathways Proxy.
+                    type: string
+                type: object
               maxRestarts:
                 description: Maximum number of times the JobSet is restarted.
                 format: int32
@@ -8122,6 +8147,9 @@ spec:
                         workers.
                       format: int32
                       type: integer
+                    remotePythonImage:
+                      description: Enable remote python using this sidecar image.
+                      type: string
                     topology:
                       description: |-
                         Topology will translate to a nodeSelector of the form
