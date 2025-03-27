@@ -78,6 +78,8 @@ type PathwaysJobSpec struct {
 	// one type of worker is supported.
 	// +kubebuilder:validation:MaxItems=1
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="workers are immutable"
+	// +listType=map
+	// +listMapKey=type
 	Workers []WorkerSpec `json:"workers"`
 
 	// Pathways single-controller specifications and user workload.
@@ -85,7 +87,11 @@ type PathwaysJobSpec struct {
 
 	// PathwaysJob components that can be customized.
 	// +optional
-	CustomComponents *CustomComponentsSpec `json:"customComponents,omitempty"`
+	// +kubebuilder:validation:MaxItems=3
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="custom components are immutable"
+	// +listType=map
+	// +listMapKey=componentType
+	CustomComponents []CustomComponentsSpec `json:"customComponents,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=colocate;default
@@ -157,29 +163,30 @@ type ControllerSpec struct {
 	UserPodTemplate *corev1.PodTemplateSpec `json:"template,omitempty" protobuf:"bytes,6,opt,name=template"`
 }
 
-// CustomComponents struct lists the PathwaysJob attributes
-// that can be customized by the user.
+// CustomComponents struct lists the Pathways server/ Pathways Proxy/ Pathways worker
+// attributes that can be customized by the user.
 type CustomComponentsSpec struct {
-	// Image for the Pathways Resource Manager.
-	// +optional
-	PathwaysServerImage string `json:"pathwaysServerImage,omitempty"`
 
-	// Image for the Pathways Proxy.
-	// +optional
-	ProxyServerImage string `json:"proxyServerImage,omitempty"`
+	// Component type - one of pathways_server or worker or proxy_server
+	ComponentType PathwaysComponentType `json:"componentType"`
 
-	// Custom RM flags
+	// Image for this component.
 	// +optional
-	CustomPathwaysServerFlags []string `json:"customPathwaysServerFlags,omitempty"`
+	Image string `json:"image,omitempty"`
 
-	// Custom Proxy flags
+	// Custom flags to be provided to this component.
 	// +optional
-	CustomProxyServerFlags []string `json:"customProxyServerFlags,omitempty"`
-
-	// Custom Worker flags
-	// +optional
-	CustomWorkerFlags []string `json:"customWorkerFlags,omitempty"`
+	CustomFlags []string `json:"customFlags,omitempty"`
 }
+
+// +kubebuilder:validation:Enum=pathways_server;worker;proxy_server
+type PathwaysComponentType string
+
+const (
+	PathwaysServer PathwaysComponentType = "pathways_server"
+	PathwaysWorker PathwaysComponentType = "worker"
+	PathwaysProxy  PathwaysComponentType = "proxy_server"
+)
 
 // PathwaysJobStatus defines the observed state of PathwaysJob
 type PathwaysJobStatus struct {

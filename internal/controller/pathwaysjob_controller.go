@@ -54,7 +54,9 @@ var (
 )
 
 const (
-	PathwaysHeadJobName = "pathways-head"
+	PathwaysHeadJobName             = "pathways-head"
+	DefaultPathwaysRMAndWorkerImage = "us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:latest"
+	DefaultPathwaysProxyImage       = "us-docker.pkg.dev/cloud-tpu-v2-images/pathways/proxy_server:latest"
 )
 
 // Map to convert machine type to TPU version
@@ -471,13 +473,35 @@ func MakeSuccessPolicy(pw *pathwaysjob.PathwaysJob) *jobsetv1alpha2.SuccessPolic
 	}
 }
 
-// Pick the RM Image based on whether custom image or Pathways version are provided.
-func MakeResourceManagerAndWorkerImage(pw *pathwaysjob.PathwaysJob) string {
-	if pw.Spec.CustomComponents != nil && pw.Spec.CustomComponents.PathwaysServerImage != "" {
-		return pw.Spec.CustomComponents.PathwaysServerImage
-	} else {
-		return fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:%s", makeImageTagUsingPathwaysVersion(pw))
+// Pick the Component Image based on whether custom image or Pathways version are provided.
+func MakeComponentImage(pw *pathwaysjob.PathwaysJob, customComponent pathwaysjob.PathwaysComponentType) string {
+	if pw.Spec.CustomComponents != nil {
+		for _, component := range pw.Spec.CustomComponents {
+			if component.ComponentType == customComponent && component.Image != "" {
+				return component.Image
+			}
+		}
 	}
+
+	// No custom components are provided or no custom image is provided for this component, return default images.
+	if customComponent == pathwaysjob.PathwaysProxy {
+		return fmt.Sprintf("%s:%s", DefaultPathwaysProxyImage, makeImageTagUsingPathwaysVersion(pw))
+	}
+	return fmt.Sprintf("%s:%s", DefaultPathwaysRMAndWorkerImage, makeImageTagUsingPathwaysVersion(pw))
+}
+
+// Append custom component flags
+func AppendCustomComponentFlags(pw *pathwaysjob.PathwaysJob, customComponent pathwaysjob.PathwaysComponentType, args []string) []string {
+	if pw.Spec.CustomComponents != nil {
+		for _, component := range pw.Spec.CustomComponents {
+			if component.ComponentType == customComponent && component.CustomFlags != nil {
+				return append(args, component.CustomFlags...)
+			}
+		}
+	}
+
+	// No custom components are provided or no custom flags are provided for this component, return default args.
+	return args
 }
 
 // Constructs the Pathways resource manager container spec for the underlying JobSet
@@ -496,13 +520,11 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, isInitContainer b
 	}
 
 	// Append all the custom pathways server flags to the existing flags.
-	if pw.Spec.CustomComponents != nil && pw.Spec.CustomComponents.CustomPathwaysServerFlags != nil {
-		args = append(args, pw.Spec.CustomComponents.CustomPathwaysServerFlags...)
-	}
+	args = AppendCustomComponentFlags(pw, pathwaysjob.PathwaysServer, args)
 
 	rmContainerSpec := corev1.Container{
 		Name:            "pathways-rm",
-		Image:           MakeResourceManagerAndWorkerImage(pw),
+		Image:           MakeComponentImage(pw, pathwaysjob.PathwaysServer),
 		ImagePullPolicy: "Always",
 		Args:            args,
 		Env: []corev1.EnvVar{
@@ -525,15 +547,6 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, isInitContainer b
 	return &rmContainerSpec, nil
 }
 
-// Pick the Proxy Image based on whether custom image or Pathways version are provided.
-func MakeProxyImage(pw *pathwaysjob.PathwaysJob) string {
-	if pw.Spec.CustomComponents != nil && pw.Spec.CustomComponents.ProxyServerImage != "" {
-		return pw.Spec.CustomComponents.ProxyServerImage
-	} else {
-		return fmt.Sprintf("us-docker.pkg.dev/cloud-tpu-v2-images/pathways/proxy_server:%s", makeImageTagUsingPathwaysVersion(pw))
-	}
-}
-
 // Constructs the Pathways proxy container spec for the underlying JobSet
 func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*corev1.Container, error) {
 
@@ -546,15 +559,12 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*cor
 	if pw.Spec.Controller.EnableMetricsCollection {
 		args = append(args, "--enable_metrics_collection=true")
 	}
-
-	// Append all the custom proxy server flags to the existing flags.
-	if pw.Spec.CustomComponents != nil && pw.Spec.CustomComponents.CustomProxyServerFlags != nil {
-		args = append(args, pw.Spec.CustomComponents.CustomProxyServerFlags...)
-	}
+	// Append all the custom pathways proxy server flags to the existing flags.
+	args = AppendCustomComponentFlags(pw, pathwaysjob.PathwaysProxy, args)
 
 	proxyContainerSpec := corev1.Container{
 		Name:            "pathways-proxy",
-		Image:           MakeProxyImage(pw),
+		Image:           MakeComponentImage(pw, pathwaysjob.PathwaysProxy),
 		ImagePullPolicy: "Always",
 		Args:            args,
 		Ports:           []corev1.ContainerPort{{ContainerPort: 29000}},
@@ -618,11 +628,8 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 	if pw.Spec.Controller.EnableMetricsCollection {
 		args = append(args, "--enable_metrics_collection=true")
 	}
-
-	// Append all the custom proxy server flags to the existing flags.
-	if pw.Spec.CustomComponents != nil && pw.Spec.CustomComponents.CustomWorkerFlags != nil {
-		args = append(args, pw.Spec.CustomComponents.CustomWorkerFlags...)
-	}
+	// Append all the custom pathways worker flags to the existing flags.
+	args = AppendCustomComponentFlags(pw, pathwaysjob.PathwaysWorker, args)
 
 	workerJob := jobsetv1alpha2.ReplicatedJob{
 		Name:     "worker",
@@ -638,7 +645,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 						Containers: []corev1.Container{
 							{
 								Name:            "pathways-worker",
-								Image:           MakeResourceManagerAndWorkerImage(pw),
+								Image:           MakeComponentImage(pw, pathwaysjob.PathwaysWorker),
 								ImagePullPolicy: "Always",
 								// SecurityContext: &corev1.SecurityContext{Privileged: &truth},
 								Args: args,

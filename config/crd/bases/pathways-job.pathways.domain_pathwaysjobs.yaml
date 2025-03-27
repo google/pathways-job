@@ -8083,32 +8083,43 @@ spec:
                     x-kubernetes-validations:
                     - message: userPodTemplate is immutable
                       rule: self == oldSelf
+                required:
+                - deploymentMode
                 type: object
               customComponents:
                 description: PathwaysJob components that can be customized.
-                properties:
-                  customPathwaysServerFlags:
-                    description: Custom RM flags
-                    items:
+                items:
+                  description: |-
+                    CustomComponents struct lists the Pathways server/ Pathways Proxy/ Pathways worker
+                    attributes that can be customized by the user.
+                  properties:
+                    componentType:
+                      description: Component type - one of pathways_server or worker
+                        or proxy_server
+                      enum:
+                      - pathways_server
+                      - worker
+                      - proxy_server
                       type: string
-                    type: array
-                  customProxyServerFlags:
-                    description: Custom Proxy flags
-                    items:
+                    customFlags:
+                      description: Custom flags to be provided to this component.
+                      items:
+                        type: string
+                      type: array
+                    image:
+                      description: Image for this component.
                       type: string
-                    type: array
-                  customWorkerFlags:
-                    description: Custom Worker flags
-                    items:
-                      type: string
-                    type: array
-                  pathwaysServerImage:
-                    description: Image for the Pathways Resource Manager.
-                    type: string
-                  proxyServerImage:
-                    description: Image for the Pathways Proxy.
-                    type: string
-                type: object
+                  required:
+                  - componentType
+                  type: object
+                maxItems: 3
+                type: array
+                x-kubernetes-list-map-keys:
+                - componentType
+                x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: custom components are immutable
+                  rule: self == oldSelf
               maxRestarts:
                 description: Maximum number of times the JobSet is restarted.
                 format: int32
@@ -8175,6 +8186,9 @@ spec:
                   type: object
                 maxItems: 1
                 type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
                 x-kubernetes-validations:
                 - message: workers are immutable
                   rule: self == oldSelf
