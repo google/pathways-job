@@ -6,9 +6,9 @@ The PathwaysJob is an API that provides an easy way to run JAX workloads using P
 ### Colocate mode
 The 'colocate' mode deploys the "pathways-head" pod besides a "worker" pod on one of the TPU workers. This is preferred for Pathways batch inference workloads, where latency is crucial.
 ### Default mode
-The "pathways-head" pod is schedule on a CPU nodepool and the "workers" are scheduled on TPUs. The default mode is preferred for Pathways training workloads where the worker utilizes the TPUs completely. 
+The "pathways-head" pod is schedule on a CPU nodepool and the "workers" are scheduled on TPUs. The default mode is preferred for Pathways training workloads where the worker utilizes the TPUs completely.
 ### With a dockerized workload
-The user workload is scheduled as a container within the "pathways-head" pod 
+The user workload is scheduled as a container within the "pathways-head" pod.
 ### Headless mode for interactive supercomputing
 The user workload is typically on a Vertex AI notebook, so users can connect to the PathwaysJob via port-forwarding.
 
@@ -19,15 +19,29 @@ The user workload is typically on a Vertex AI notebook, so users can connect to 
 - docker version 17.03+.
 - kubectl version v1.11.3+.
 - Access to a Kubernetes v1.11.3+ cluster.
+- JobSet version v0.8.0+ installed on the cluster following https://jobset.sigs.k8s.io/docs/installation/#install-a-released-version
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
 
+### Install a released version
+To install the latest released version of PathwaysJob version on your cluster, run the following command:
 ```sh
-make docker-build docker-push IMG=<some-registry>/pathways-job:tag
+VERSION=v0.1.0-dev
+kubectl apply --server-side -f https://github.com/google/pathways-job/releases/download/$VERSION/install.yaml
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
+### Build and install from source
+To build PathwaysJob from source and install it on your cluster, run the following commands:
+**Build and push your image to the location specified by `IMAGE`:**
+
+```sh
+git clone https://github.com/google/pathways-job.git
+cd pathways-job
+IMAGE=<$(IMAGE_REGISTRY)/pathwaysjob-controller:$(IMAGE_TAG)>
+make docker-build docker-push IMG=$IMAGE
+```
+
+**NOTE:** Please update IMAGE_REGISTRY and IMAGE_TAG in the commands mentioned above.
+This image ought to be published in the personal registry you specified.
 And it is required to have access to pull the image from the working environment.
 Make sure you have the proper permission to the registry if the above commands don’t work.
 
@@ -37,7 +51,7 @@ Make sure you have the proper permission to the registry if the above commands d
 make install
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+**Deploy the Manager to the cluster with the image specified by `IMAGE`:**
 
 ```sh
 make deploy IMG=<some-registry>/pathways-job:tag
@@ -65,7 +79,22 @@ kubectl delete -k config/samples/
 **Delete the APIs(CRDs) from the cluster:**
 
 ```sh
-make uninstall
+make deploy IMG=$IMAGE
+```
+
+### Create instances of your solution
+You can apply the samples (examples) from the config/sample:
+
+```sh
+kubectl apply -k config/samples/<example name>.yaml
+```
+>**NOTE**: Refer to the examples showcasing PathwaysJob features.
+Ensure that the samples has default values to test it out.
+
+### Delete the instances (CRs) from the cluster:**
+
+```sh
+kubectl delete -k config/samples/<example name>.yaml
 ```
 
 **UnDeploy the controller from the cluster:**
@@ -74,34 +103,10 @@ make uninstall
 make undeploy
 ```
 
-## Project Distribution
-
-Following are the steps to build the installer and distribute this project to users.
-
-1. Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/pathways-job:tag
-```
-
-NOTE: The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without
-its dependencies.
-
-2. Using the installer
-
-Users can just run kubectl apply -f <URL for YAML BUNDLE> to install the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/pathways-job/<tag or branch>/dist/install.yaml
-```
 
 ## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
-
-**NOTE:** Run `make help` for more information on all potential `make` targets
-
+We welcome contributions! Please look at [contributing.md](/usr/local/google/home/roshanin/pathways-job/docs/contributing.md).
+We welcome contributions! Please look at [contributing.md](/usr/local/google/home/roshanin/pathways-job/docs/contributing.md).
 More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
 
 ## License
