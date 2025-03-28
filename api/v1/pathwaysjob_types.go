@@ -78,10 +78,20 @@ type PathwaysJobSpec struct {
 	// one type of worker is supported.
 	// +kubebuilder:validation:MaxItems=1
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="workers are immutable"
+	// +listType=map
+	// +listMapKey=type
 	Workers []WorkerSpec `json:"workers"`
 
 	// Pathways single-controller specifications and user workload.
 	Controller *ControllerSpec `json:"controller"`
+
+	// PathwaysJob components that can be customized.
+	// +optional
+	// +kubebuilder:validation:MaxItems=4
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="custom components are immutable"
+	// +listType=map
+	// +listMapKey=componentType
+	CustomComponents []CustomComponentsSpec `json:"customComponents,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=colocate;default
@@ -135,7 +145,7 @@ type ControllerSpec struct {
 	// RM pod and the proxy pod on the CPU nodepools by default. User
 	// workload will be deployed separately, as a pod.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="deploymentMode is immutable"
-	DeploymentMode DeploymentMode `json:"deploymentMode,omitempty"`
+	DeploymentMode DeploymentMode `json:"deploymentMode"`
 
 	// Enables metrics collection for the PathwaysJob
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="enableMetricsCollection is immutable"
@@ -148,6 +158,36 @@ type ControllerSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="userPodTemplate is immutable"
 	UserPodTemplate *corev1.PodTemplateSpec `json:"template,omitempty" protobuf:"bytes,6,opt,name=template"`
 }
+
+// CustomComponents struct lists the Pathways server/ Pathways Proxy/ Pathways worker
+// attributes that can be customized by the user.
+type CustomComponentsSpec struct {
+
+	// Component type - one of pathways_server or worker or proxy_server
+	ComponentType PathwaysComponentType `json:"componentType"`
+
+	// Image for this component.
+	// +optional
+	Image string `json:"image,omitempty"`
+
+	// Custom flags to be provided to this component.
+	// +optional
+	CustomFlags []string `json:"customFlags,omitempty"`
+}
+
+// +kubebuilder:validation:Enum=pathways_server;worker;proxy_server;remote_python_sidecar
+type PathwaysComponentType string
+
+const (
+	// Pathways resource manager component
+	PathwaysServer PathwaysComponentType = "pathways_server"
+	// Pathways proxy component
+	PathwaysProxy PathwaysComponentType = "proxy_server"
+	// Pathways worker component
+	PathwaysWorker PathwaysComponentType = "worker"
+	//Pathways remote python sidecar component, hosted on the workers.
+	PathwaysRemotePythonSidecar PathwaysComponentType = "remote_python_sidecar"
+)
 
 // PathwaysJobStatus defines the observed state of PathwaysJob
 type PathwaysJobStatus struct {
