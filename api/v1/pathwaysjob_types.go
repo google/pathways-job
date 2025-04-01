@@ -94,12 +94,12 @@ type PathwaysJobSpec struct {
 	CustomComponents []CustomComponentsSpec `json:"customComponents,omitempty"`
 }
 
-// +kubebuilder:validation:Enum=colocate;default
+// +kubebuilder:validation:Enum=colocate_head_with_workers;default
 type DeploymentMode string
 
 const (
-	Colocate DeploymentMode = "colocate"
-	Default  DeploymentMode = "default"
+	ColocateHeadWithWorkers DeploymentMode = "colocate_head_with_workers"
+	Default                 DeploymentMode = "default"
 )
 
 // +kubebuilder:validation:Enum=ct6e-standard-4t;ct6e-standard-8t;ct5p-hightpu-4t;ct5lp-hightpu-4t;ct5lp-hightpu-8t;ct4p-hightpu-4t
@@ -139,7 +139,7 @@ type WorkerSpec struct {
 type ControllerSpec struct {
 	// DeploymentMode defines whether the user job and the Pathways
 	// resources (RM, proxy) must be colocated on TPUs, with the Pathways
-	// workers or not. If user chooses to "colocate", then the Pathways RM
+	// workers or not. If user chooses to "colocate_head_with_workers", then the Pathways RM
 	// and proxy run together with the user job as a single pod.
 	// Users may opt for "default" placement where scheduler places the
 	// RM pod and the proxy pod on the CPU nodepools by default. User
@@ -175,7 +175,7 @@ type CustomComponentsSpec struct {
 	CustomFlags []string `json:"customFlags,omitempty"`
 }
 
-// +kubebuilder:validation:Enum=pathways_server;worker;proxy_server;remote_python_sidecar
+// +kubebuilder:validation:Enum=pathways_server;worker;proxy_server;colocated_python_sidecar
 type PathwaysComponentType string
 
 const (
@@ -185,8 +185,8 @@ const (
 	PathwaysProxy PathwaysComponentType = "proxy_server"
 	// Pathways worker component
 	PathwaysWorker PathwaysComponentType = "worker"
-	//Pathways remote python sidecar component, hosted on the workers.
-	PathwaysRemotePythonSidecar PathwaysComponentType = "remote_python_sidecar"
+	//Pathways colocated python sidecar component, hosted on the workers.
+	PathwaysColocatedPythonSidecar PathwaysComponentType = "colocated_python_sidecar"
 )
 
 // PathwaysJobStatus defines the observed state of PathwaysJob
