@@ -65,13 +65,13 @@ spec:
                     description: |-
                       DeploymentMode defines whether the user job and the Pathways
                       resources (RM, proxy) must be colocated on TPUs, with the Pathways
-                      workers or not. If user chooses to "colocate", then the Pathways RM
+                      workers or not. If user chooses to "colocate_head_with_workers", then the Pathways RM
                       and proxy run together with the user job as a single pod.
                       Users may opt for "default" placement where scheduler places the
                       RM pod and the proxy pod on the CPU nodepools by default. User
                       workload will be deployed separately, as a pod.
                     enum:
-                    - colocate
+                    - colocate_head_with_workers
                     - default
                     type: string
                     x-kubernetes-validations:
@@ -8100,7 +8100,7 @@ spec:
                       - pathways_server
                       - worker
                       - proxy_server
-                      - remote_python_sidecar
+                      - colocated_python_sidecar
                       type: string
                     customFlags:
                       description: Custom flags to be provided to this component.

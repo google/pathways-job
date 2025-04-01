@@ -15,12 +15,12 @@
 apiVersion: pathways-job.pathways.domain/v1
 kind: PathwaysJob
 metadata:
-  name: pathways-remotepython-trial
+  name: pathways-colocatedpython-trial
 spec:
   maxRestarts: 0
   customComponents:
-  - componentType: remote_python_sidecar
-    image: <Remote python sidecar image> # Provide remote python sidecar image
+  - componentType: colocated_python_sidecar
+    image: <Colocated python sidecar image> # Provide colocated python sidecar image
   workers:
   - type: ct5p-hightpu-4t
     topology: 4x4x4
@@ -39,7 +39,7 @@ spec:
           - name: JAX_PLATFORMS
             value: proxy
           - name: JAX_BACKEND_TARGET
-            value: grpc://pathways-remotepython-trial-pathways-head-0-0.pathways-remotepython-trial:29000
+            value: grpc://pathways-colocatedpython-trial-pathways-head-0-0.pathways-colocatedpython-trial:29000
           image: python:3.13
           imagePullPolicy: Always
           command:

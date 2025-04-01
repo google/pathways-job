@@ -185,7 +185,7 @@ func (r *PathwaysJobReconciler) getChildJobSet(ctx context.Context, pw *pathways
 	return js, nil
 }
 
-// Create the JobSet for 'colocated' or 'default' deployment modes.
+// Create the JobSet for 'colocate_head_with_workers' or 'default' deployment modes.
 func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjob.PathwaysJob, jobSetClient *jobsetclient.Clientset) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
 	ctx = ctrl.LoggerInto(ctx, log)
@@ -201,8 +201,8 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 		log.Info("PathwaysJob: in createJobSet calculateTPUInfo ", "InstanceType", InstanceType, "NumVMs", NumVMs)
 	}
 	// Pathways Spec + JobSet for training or batch inference ------
-	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Colocate {
-		job, _ = MakePathwaysHeadJobForColocatedDeployment(ctx, pw)
+	if pw.Spec.Controller.DeploymentMode == pathwaysjob.ColocateHeadWithWorkers {
+		job, _ = MakePathwaysHeadJobForColocateHeadWithWorkersDeployment(ctx, pw)
 	} else {
 		job, _ = MakePathwaysHeadJobForDefaultDeployment(ctx, pw)
 	}
@@ -259,7 +259,7 @@ func (r *PathwaysJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 // ---------------------- PATHWAYSJOB HELPERS --------------------------
 
-// Find the status of the underlying JobSet for 'colocated' or 'default' deployment modes.
+// Find the status of the underlying JobSet for 'colocated_head_with_workers' or 'default' deployment modes.
 // Update the conditions within PathwaysJobStatus and persist the changes to the PathwaysJobStatus.
 func (r *PathwaysJobReconciler) setPathwaysJobStatusBasedOnJobSetStatus(ctx context.Context, pw *pathwaysjob.PathwaysJob, js *jobsetv1alpha2.JobSet) {
 	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
@@ -579,15 +579,15 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*cor
 	return &proxyContainerSpec, nil
 }
 
-// Construct the initContainers to enable remote python on Pathways workers.
-func MakeRemotePythonInitContainers(pw *pathwaysjob.PathwaysJob) ([]corev1.Container, error) {
+// Construct the initContainers to enable colocated python on Pathways workers.
+func MakeColocateHeadWithWorkersPythonInitContainers(pw *pathwaysjob.PathwaysJob) ([]corev1.Container, error) {
 	restartPolicy := corev1.ContainerRestartPolicyAlways
 
 	if pw.Spec.CustomComponents != nil {
 		for _, component := range pw.Spec.CustomComponents {
-			if component.ComponentType == pathwaysjob.PathwaysRemotePythonSidecar && component.Image != "" {
-				remotePythonContainer := corev1.Container{
-					Name:            "remote-python-sidecar",
+			if component.ComponentType == pathwaysjob.PathwaysColocatedPythonSidecar && component.Image != "" {
+				colocatedPythonContainer := corev1.Container{
+					Name:            "colocated-python-sidecar",
 					Image:           component.Image,
 					ImagePullPolicy: "Always",
 					Env: []corev1.EnvVar{
@@ -602,17 +602,17 @@ func MakeRemotePythonInitContainers(pw *pathwaysjob.PathwaysJob) ([]corev1.Conta
 					},
 					RestartPolicy: &restartPolicy,
 				}
-				return []corev1.Container{remotePythonContainer}, nil
+				return []corev1.Container{colocatedPythonContainer}, nil
 			}
 		}
 	}
 	return nil, nil
 }
 
-// Constructs Pathways worker replicated job for both 'colocated' and 'default' deployment modes.
+// Constructs Pathways worker replicated job for both 'colocated_head_with_workers' and 'default' deployment modes.
 func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1alpha2.ReplicatedJob, error) {
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
-	initContainers, _ := MakeRemotePythonInitContainers(pw)
+	initContainers, _ := MakeColocateHeadWithWorkersPythonInitContainers(pw)
 
 	objectMeta := metav1.ObjectMeta{
 		Annotations: map[string]string{
@@ -690,7 +690,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 	return workerJob, nil
 }
 
-// Affinity rules to allow the leader pod to coexist with worker pod in the 'colocate' mode.
+// Affinity rules to allow the leader pod to coexist with worker pod in the 'colocated_head_with_workers' mode.
 func MakePodAffinityRules(pw *pathwaysjob.PathwaysJob) (*corev1.Affinity, error) {
 	affinity := corev1.Affinity{
 		PodAffinity: &corev1.PodAffinity{
@@ -739,7 +739,7 @@ func isUserPodProvided(pw *pathwaysjob.PathwaysJob) bool {
 }
 
 // Get the init containers (any sidecars) from the User's pod spec.
-// This is used to inject the containers into the leader pod in the 'colocate' deployment mode and
+// This is used to inject the containers into the leader pod in the 'colocate_head_with_workers' deployment mode and
 // pathways-head pod in the 'default' deployment mode.
 func GetContainerListFromUserPodSpec(pw *pathwaysjob.PathwaysJob) ([]corev1.Container, error) {
 	// When workload is to be run in headless mode, no user pod will be provided.
@@ -750,9 +750,9 @@ func GetContainerListFromUserPodSpec(pw *pathwaysjob.PathwaysJob) ([]corev1.Cont
 }
 
 // Pods containing the following Toleration are allowed to be scheduled on TPUs.
-// This toleration is needed only for the colocated mode.
+// This toleration is needed only for the colocate_head_with_workers mode.
 func MakeTolerationToAllowSchedulingOnTPU(pw *pathwaysjob.PathwaysJob) []corev1.Toleration {
-	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Colocate {
+	if pw.Spec.Controller.DeploymentMode == pathwaysjob.ColocateHeadWithWorkers {
 		return []corev1.Toleration{
 			{
 				Key:      "google.com/tpu",
@@ -813,8 +813,8 @@ func MakePathwaysHeadReplicatedJob(pathwaysHeadPodSpec corev1.PodSpec) jobsetv1a
 }
 
 // Construct pathways-head replicated job containing Pathways RM, Pathways Proxy and the user job containers for the 'colocate' deployment mode.
-// In the colocate mode, the Pathways head pod is placed on TPU nodes, beside a worker pod.
-func MakePathwaysHeadJobForColocatedDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1alpha2.ReplicatedJob, error) {
+// In the colocate_head_with_workers mode, the Pathways head pod is placed on TPU nodes, beside a worker pod.
+func MakePathwaysHeadJobForColocateHeadWithWorkersDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1alpha2.ReplicatedJob, error) {
 	podSpec := *MakePathwaysHeadPodSpec(pw)
 	// Add affinity and tolerations to allow the Pathways head pod to be scheduled on TPUs.
 	affinitySpec, _ := MakePodAffinityRules(pw)

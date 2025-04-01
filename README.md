@@ -3,8 +3,8 @@ PathwaysJob API is an OSS Kubernetes-native API, to deploy ML training and batch
 //ToDo(roshanin) - add intro for Pathways.
 ## Description
 The PathwaysJob is an API that provides an easy way to run JAX workloads using Pathways. It support two modes of deployment. A PathwaysJob instance bundles the Pathways resource manager(RM) AKA Pathways server, the Pathways proxy server and the user workload containers into a single pod called "pathways-head". When the user pod is not provided (headless workloads), the "pathways-head" pod consists of the Pathways RM and the proxy server.
-### Colocate mode
-The 'colocate' mode deploys the "pathways-head" pod besides a "worker" pod on one of the TPU workers. This is preferred for Pathways batch inference workloads, where latency is crucial.
+### ColocateHeadWithWorkers mode
+The 'colocate_head_with_workers' mode deploys the "pathways-head" pod besides a "worker" pod on one of the TPU workers. This is preferred for Pathways batch inference workloads, where latency is crucial.
 ### Default mode
 The "pathways-head" pod is schedule on a CPU nodepool and the "workers" are scheduled on TPUs. The default mode is preferred for Pathways training workloads where the worker utilizes the TPUs completely.
 ### With a dockerized workload
