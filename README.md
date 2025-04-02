@@ -15,7 +15,7 @@ The user workload is typically on a Vertex AI notebook, so users can connect to 
 ## Getting Started
 
 ### Prerequisites
-- go version v1.22.0+
+- go version v1.23.0+
 - docker version 17.03+.
 - kubectl version v1.11.3+.
 - Access to a Kubernetes v1.11.3+ cluster.
@@ -25,7 +25,7 @@ The user workload is typically on a Vertex AI notebook, so users can connect to 
 ### Install a released version
 To install the latest released version of PathwaysJob version on your cluster, run the following command:
 ```sh
-VERSION=v0.1.0-dev
+VERSION=v0.1.0
 kubectl apply --server-side -f https://github.com/google/pathways-job/releases/download/$VERSION/install.yaml
 ```
 
