@@ -617,7 +617,7 @@ func MakeColocateHeadWithWorkersPythonInitContainers(pw *pathwaysjob.PathwaysJob
 func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1alpha2.ReplicatedJob, error) {
 	volumeSourceType := corev1.HostPathDirectoryOrCreate
 	initContainers, _ := MakeColocateHeadWithWorkersPythonInitContainers(pw)
-	backOffLimit := 0
+	backOffLimit := ptr.To(int32(NumVMs * 4)) // default for suspend resume
 
 	objectMeta := metav1.ObjectMeta{
 		Annotations: map[string]string{
@@ -637,8 +637,9 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 	// Append all the custom pathways worker flags to the existing flags.
 	args = AppendCustomComponentFlags(pw, pathwaysjob.PathwaysWorker, args)
 
-	if pw.Spec.Controller.ElasticSlices > 0 && pw.Spec.Controller.MaxSliceRestarts > 0 {
-		backOffLimit = ptr.To(int32(NumVMs * pw.Spec.Controller.MaxSliceRestarts))
+	// Update backOffLimit based on MaxSliceRestarts as specified by the user.
+	if pw.Spec.Controller.ElasticSlices > 0 && pw.Spec.Workers[0].MaxSliceRestarts > 0 {
+		backOffLimit = ptr.To(int32(NumVMs * pw.Spec.Workers[0].MaxSliceRestarts))
 	}
 
 	workerJob := jobsetv1alpha2.ReplicatedJob{
@@ -647,8 +648,8 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 		Template: batchv1.JobTemplateSpec{
 			Spec: batchv1.JobSpec{
 				BackoffLimit: backOffLimit,
-				Completions:  ptr.To(int32(NumVMs)), // number of workers remember to change
-				Parallelism:  ptr.To(int32(NumVMs)), // number of workers  remember to change
+				Completions:  ptr.To(int32(NumVMs)),
+				Parallelism:  ptr.To(int32(NumVMs)),
 				Template: corev1.PodTemplateSpec{
 					ObjectMeta: objectMeta,
 					Spec: corev1.PodSpec{

@@ -85,6 +85,12 @@ spec:
                     x-kubernetes-validations:
                     - message: deploymentMode is immutable
                       rule: self == oldSelf
+                  elasticSlices:
+                    description: |-
+                      Enables elasticity and sets the maximum number of slices
+                      that can be missing at any given time.
+                    format: int32
+                    type: integer
                   enableMetricsCollection:
                     description: Enables metrics collection for the PathwaysJob
                     type: boolean
@@ -8254,6 +8260,12 @@ spec:
                     The WorkerSpec struct lists the specifications for the
                     Pathways workers.
                   properties:
+                    maxSliceRestarts:
+                      description: |-
+                        Maximum times the workers in a slice can be restarted.
+                        Used with elasticSlices.
+                      format: int32
+                      type: integer
                     numSlices:
                       description: Number of TPU slices requested for the Pathways
                         workers.

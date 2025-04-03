@@ -22,12 +22,12 @@ spec:
   - type: ct5p-hightpu-4t
     topology: 4x4x4
     numSlices: 2
-    elasticSlices: 1
-    maxWorkerRestarts: 4
+    maxSliceRestarts: 4 # For elastic training
   pathwaysDir: "gs://<test-bucket>/tmp" #This bucket needs to be created in advance.
   controller:
     # #Pod template for training, default mode.
     deploymentMode: default
+    elasticSlices: 1 # For elastic training
     template: # UserPodTemplate
       spec:
         containers:
