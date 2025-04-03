@@ -663,6 +663,12 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 									{Name: "TPU_MIN_LOG_LEVEL", Value: "0"},
 									{Name: "TF_CPP_MIN_LOG_LEVEL", Value: "0"},
 									{Name: "XCLOUD_ENVIRONMENT", Value: "GCP"},
+									{Name: "MEGASCALE_GRPC_ENABLE_XOR_TRACER", Value: "false"},
+									{Name: "MEGASCALE_NUM_SLICES", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.labels['jobset.sigs.k8s.io/replicatedjob-replicas']"}}},
+									{Name: "JOBSET_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/jobset-name']"}}},
+									{Name: "REPLICATED_JOB_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/replicatedjob-name']"}}},
+									{Name: "MEGASCALE_SLICE_ID", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.labels['jobset.sigs.k8s.io/job-index']"}}},
+									{Name: "MEGASCALE_COORDINATOR_ADDRESS", Value: "$(JOBSET_NAME)-$(REPLICATED_JOB_NAME)-$(MEGASCALE_SLICE_ID)-0.$(JOBSET_NAME)"},
 								},
 								Ports: []corev1.ContainerPort{{ContainerPort: 29005}, {ContainerPort: 29006}, {ContainerPort: 8471}, {ContainerPort: 8080}},
 								VolumeMounts: []corev1.VolumeMount{
