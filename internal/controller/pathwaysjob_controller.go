@@ -51,6 +51,14 @@ var (
 	InstanceType       string
 	NumVMs             int32
 	GKEAcceleratorType string
+	ChipsPerVM         int
+)
+
+// Public variables to store Pathways information
+var (
+	PathwaysProxyPort  int32 = 29000
+	PathwaysRMPort     int32 = 29001
+	PathwaysWorkerPort int32 = 29005
 )
 
 const (
@@ -223,6 +231,7 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 				MaxRestarts: pw.Spec.MaxRestarts,
 			},
 			SuccessPolicy:  successPolicy,
+			Coordinator:    &jobsetv1alpha2.Coordinator{ReplicatedJob: PathwaysHeadJobName, JobIndex: 0, PodIndex: 0},
 			ReplicatedJobs: []jobsetv1alpha2.ReplicatedJob{job, workerJob},
 		},
 	}
@@ -428,12 +437,12 @@ func calculateVMsFromMachineTypeAndTopology(machineType pathwaysjob.MachineType,
 		chips *= num
 	}
 	vms := 1
-	chipsperVM := 4
+	ChipsPerVM = 4
 	if (machineType == pathwaysjob.Ct6e_standard_8t) || (machineType == pathwaysjob.Ct5lp_hightpu_8t) {
-		chipsperVM = 8
+		ChipsPerVM = 8
 	}
-	if chips >= chipsperVM {
-		vms = chips / chipsperVM
+	if chips >= ChipsPerVM {
+		vms = chips / ChipsPerVM
 	}
 	return int32(vms)
 }
@@ -465,7 +474,7 @@ func makeImageTagUsingPathwaysVersion(pw *pathwaysjob.PathwaysJob) string {
 
 // Construct success policy based on deployment mode and user workload spec.
 func MakeSuccessPolicy(pw *pathwaysjob.PathwaysJob) *jobsetv1alpha2.SuccessPolicy {
-	userJobName := "pathways-head"
+	userJobName := PathwaysHeadJobName
 	if isUserPodProvided(pw) {
 		return &jobsetv1alpha2.SuccessPolicy{Operator: jobsetv1alpha2.OperatorAll, TargetReplicatedJobs: []string{userJobName}}
 	} else {
@@ -499,16 +508,28 @@ func AppendCustomComponentFlags(pw *pathwaysjob.PathwaysJob, customComponent pat
 			}
 		}
 	}
-
 	// No custom components are provided or no custom flags are provided for this component, return default args.
 	return args
+}
+
+// Add custom component environment variables
+func AddCustomComponentEnvVars(pw *pathwaysjob.PathwaysJob, customComponent pathwaysjob.PathwaysComponentType, env []corev1.EnvVar) []corev1.EnvVar {
+	if pw.Spec.CustomComponents != nil {
+		for _, component := range pw.Spec.CustomComponents {
+			if component.ComponentType == customComponent && component.CustomEnv != nil {
+				env = append(env, component.CustomEnv...)
+			}
+		}
+	}
+	// No custom components are provided or no custom environment variables are provided for this component, return default env.
+	return env
 }
 
 // Constructs the Pathways resource manager container spec for the underlying JobSet
 func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*corev1.Container, error) {
 
 	args := []string{
-		"--server_port=29001",
+		fmt.Sprintf("--server_port=%d", PathwaysRMPort),
 		fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
 		"--node_type=resource_manager",
 		fmt.Sprintf("--instance_count=%d", int32(pw.Spec.Workers[0].NumSlices)),
@@ -522,20 +543,24 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, isInitContainer b
 	// Append all the custom pathways server flags to the existing flags.
 	args = AppendCustomComponentFlags(pw, pathwaysjob.PathwaysServer, args)
 
+	env := []corev1.EnvVar{
+		{Name: "REPLICATED_JOB_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/replicatedjob-name']"}}},
+		{Name: "JOBSET_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/jobset-name']"}}},
+		{Name: "HOST_ADDRESS", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.labels['jobset.sigs.k8s.io/coordinator']"}}},
+		{Name: "TPU_SKIP_MDS_QUERY", Value: "true"},
+	}
+
+	// Add all the custom pathways server environment variables to the existing environment variables.
+	env = AddCustomComponentEnvVars(pw, pathwaysjob.PathwaysServer, env)
+
 	rmContainerSpec := corev1.Container{
 		Name:            "pathways-rm",
 		Image:           MakeComponentImage(pw, pathwaysjob.PathwaysServer),
 		ImagePullPolicy: "Always",
 		Args:            args,
-		Env: []corev1.EnvVar{
-			{Name: "REPLICATED_JOB_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/replicatedjob-name']"}}},
-			{Name: "JOBSET_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/jobset-name']"}}},
-			// {Name: "HOST_ADDRESS", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.labels['jobset.sigs.k8s.io/coordinator']"}}},
-			{Name: "HOST_ADDRESS", Value: fmt.Sprintf("%s-%s-0-0.%s", pw.GetName(), PathwaysHeadJobName, pw.GetName())},
-			{Name: "TPU_SKIP_MDS_QUERY", Value: "true"},
-		},
-		Ports: []corev1.ContainerPort{{ContainerPort: 29001}, {ContainerPort: 29002}},
-		// Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(8000000000, resource.DecimalSI)}},
+		Env:             env,
+		Ports:           []corev1.ContainerPort{{ContainerPort: PathwaysRMPort}, {ContainerPort: 29002}},
+		Resources:       corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(8000000000, resource.DecimalSI)}},
 	}
 
 	// Init containers can have restartPolicy but regular containers cannot have restartPolicy.
@@ -551,8 +576,8 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, isInitContainer b
 func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*corev1.Container, error) {
 
 	args := []string{
-		"--server_port=29000",
-		fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:29001", pw.GetName(), PathwaysHeadJobName, pw.GetName()),
+		fmt.Sprintf("--server_port=%d", PathwaysProxyPort),
+		fmt.Sprintf("--resource_manager_address=$(PATHWAYS_HEAD):%d", PathwaysRMPort),
 		fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
 	}
 
@@ -566,13 +591,18 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*cor
 		args = append(args, fmt.Sprintf("--num_elastic_slices=%d", int32(pw.Spec.Controller.ElasticSlices)))
 	}
 
+	env := []corev1.EnvVar{{Name: "PATHWAYS_HEAD", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.labels['jobset.sigs.k8s.io/coordinator']"}}}}
+	// Add all the custom proxy server environment variables to the existing environment variables.
+	env = AddCustomComponentEnvVars(pw, pathwaysjob.PathwaysProxy, env)
+
 	proxyContainerSpec := corev1.Container{
 		Name:            "pathways-proxy",
 		Image:           MakeComponentImage(pw, pathwaysjob.PathwaysProxy),
 		ImagePullPolicy: "Always",
 		Args:            args,
-		Ports:           []corev1.ContainerPort{{ContainerPort: 29000}},
-		// Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(100000000000, resource.DecimalSI)}}, //100GiB
+		Env:             env,
+		Ports:           []corev1.ContainerPort{{ContainerPort: PathwaysProxyPort}},
+		Resources:       corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(16, resource.DecimalSI), "memory": *resource.NewQuantity(100000000000, resource.DecimalSI)}}, //100GiB
 	}
 	// Init containers can have restartPolicy but regular containers cannot have restartPolicy.
 	var restartPolicy corev1.ContainerRestartPolicy
@@ -626,8 +656,8 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 	}
 
 	args := []string{
-		"--server_port=29005",
-		fmt.Sprintf("--resource_manager_address=%s-%s-0-0.%s:29001", pw.GetName(), PathwaysHeadJobName, pw.GetName()),
+		fmt.Sprintf("--server_port=%d", PathwaysWorkerPort),
+		fmt.Sprintf("--resource_manager_address=$(PATHWAYS_HEAD):%d", PathwaysRMPort),
 		fmt.Sprintf("--gcs_scratch_location=%s", pw.Spec.PathwaysDir),
 	}
 
@@ -642,6 +672,21 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 		backOffLimit = ptr.To(int32(NumVMs * pw.Spec.Workers[0].MaxSliceRestarts))
 	}
 
+	env := []corev1.EnvVar{
+		{Name: "TPU_MIN_LOG_LEVEL", Value: "0"},
+		{Name: "TF_CPP_MIN_LOG_LEVEL", Value: "0"},
+		{Name: "XCLOUD_ENVIRONMENT", Value: "GCP"},
+		{Name: "MEGASCALE_GRPC_ENABLE_XOR_TRACER", Value: "false"}, // ToDo(roshanin@) remove after b/377765849, more info on b/395970249#comment29
+		{Name: "MEGASCALE_NUM_SLICES", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.labels['jobset.sigs.k8s.io/replicatedjob-replicas']"}}}, // ToDo(roshanin@) remove after b/377765849
+		{Name: "JOBSET_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/jobset-name']"}}},
+		{Name: "REPLICATED_JOB_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/replicatedjob-name']"}}},
+		{Name: "MEGASCALE_SLICE_ID", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.labels['jobset.sigs.k8s.io/job-index']"}}},
+		{Name: "PATHWAYS_HEAD", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.labels['jobset.sigs.k8s.io/coordinator']"}}},
+		{Name: "MEGASCALE_COORDINATOR_ADDRESS", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.labels['jobset.sigs.k8s.io/coordinator']"}}},
+	}
+	// Add all the custom worker environment variables to the existing worker environment variables.
+	env = AddCustomComponentEnvVars(pw, pathwaysjob.PathwaysWorker, env)
+
 	workerJob := jobsetv1alpha2.ReplicatedJob{
 		Name:     "worker",
 		Replicas: int32(pw.Spec.Workers[0].NumSlices),
@@ -653,31 +698,23 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 				Template: corev1.PodTemplateSpec{
 					ObjectMeta: objectMeta,
 					Spec: corev1.PodSpec{
+						TerminationGracePeriodSeconds: pw.Spec.Workers[0].TerminationGracePeriodSeconds,
+						PriorityClassName:             pw.Spec.Workers[0].PriorityClassName,
 						Containers: []corev1.Container{
 							{
 								Name:            "pathways-worker",
 								Image:           MakeComponentImage(pw, pathwaysjob.PathwaysWorker),
 								ImagePullPolicy: "Always",
 								Args:            args,
-								Env: []corev1.EnvVar{
-									{Name: "TPU_MIN_LOG_LEVEL", Value: "0"},
-									{Name: "TF_CPP_MIN_LOG_LEVEL", Value: "0"},
-									{Name: "XCLOUD_ENVIRONMENT", Value: "GCP"},
-									{Name: "MEGASCALE_GRPC_ENABLE_XOR_TRACER", Value: "false"},
-									{Name: "MEGASCALE_NUM_SLICES", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.labels['jobset.sigs.k8s.io/replicatedjob-replicas']"}}},
-									{Name: "JOBSET_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/jobset-name']"}}},
-									{Name: "REPLICATED_JOB_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['jobset.sigs.k8s.io/replicatedjob-name']"}}},
-									{Name: "MEGASCALE_SLICE_ID", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.labels['jobset.sigs.k8s.io/job-index']"}}},
-									{Name: "MEGASCALE_COORDINATOR_ADDRESS", Value: "$(JOBSET_NAME)-$(REPLICATED_JOB_NAME)-$(MEGASCALE_SLICE_ID)-0.$(JOBSET_NAME)"},
-								},
-								Ports: []corev1.ContainerPort{{ContainerPort: 29005}, {ContainerPort: 29006}, {ContainerPort: 8471}, {ContainerPort: 8080}},
+								Env:             env,
+								Ports:           []corev1.ContainerPort{{ContainerPort: PathwaysWorkerPort}, {ContainerPort: 29006}, {ContainerPort: 8471}, {ContainerPort: 8080}},
 								VolumeMounts: []corev1.VolumeMount{
 									{
 										Name:      "shared-tmp",
 										MountPath: "/tmp",
 									},
 								},
-								Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"google.com/tpu": *resource.NewQuantity(4, resource.DecimalSI)}},
+								Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{"google.com/tpu": *resource.NewQuantity(int64(ChipsPerVM), resource.DecimalSI)}},
 							}, // end Pathways worker container
 						},
 						InitContainers: initContainers,
@@ -706,7 +743,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 	return workerJob, nil
 }
 
-// Affinity rules to allow the leader pod to coexist with worker pod in the 'colocated_head_with_workers' mode.
+// Affinity rules to allow the pathways-head pod to coexist with worker pod in the 'colocated_head_with_workers' mode.
 func MakePodAffinityRules(pw *pathwaysjob.PathwaysJob) (*corev1.Affinity, error) {
 	affinity := corev1.Affinity{
 		PodAffinity: &corev1.PodAffinity{
@@ -755,8 +792,8 @@ func isUserPodProvided(pw *pathwaysjob.PathwaysJob) bool {
 }
 
 // Get the init containers (any sidecars) from the User's pod spec.
-// This is used to inject the containers into the leader pod in the 'colocate_head_with_workers' deployment mode and
-// pathways-head pod in the 'default' deployment mode.
+// This is used to inject the containers into the pathways-head in both
+// the 'colocate_head_with_workers' deployment mode and the 'default' deployment mode.
 func GetContainerListFromUserPodSpec(pw *pathwaysjob.PathwaysJob) ([]corev1.Container, error) {
 	// When workload is to be run in headless mode, no user pod will be provided.
 	if isUserPodProvided(pw) {
@@ -794,7 +831,7 @@ func MakePathwaysHeadPodSpec(pw *pathwaysjob.PathwaysJob) *corev1.PodSpec {
 		pathwaysHeadPodSpec = pw.Spec.Controller.UserPodTemplate.Spec.DeepCopy()
 		pathwaysHeadPodSpec.HostNetwork = true
 		pathwaysHeadPodSpec.DNSPolicy = corev1.DNSClusterFirstWithHostNet
-		pathwaysHeadPodSpec.InitContainers = initContainerList
+		pathwaysHeadPodSpec.InitContainers = append(pathwaysHeadPodSpec.InitContainers, initContainerList...)
 	} else {
 		// In Headless mode, RM and proxy are the the main containers.
 		// Ensure DNSPolicy and HostNetwork are set as needed.
@@ -812,7 +849,7 @@ func MakePathwaysHeadPodSpec(pw *pathwaysjob.PathwaysJob) *corev1.PodSpec {
 
 func MakePathwaysHeadReplicatedJob(pathwaysHeadPodSpec corev1.PodSpec) jobsetv1alpha2.ReplicatedJob {
 	pathwaysHeadJob := jobsetv1alpha2.ReplicatedJob{
-		Name:     "pathways-head",
+		Name:     PathwaysHeadJobName,
 		Replicas: 1,
 		Template: batchv1.JobTemplateSpec{
 			Spec: batchv1.JobSpec{
