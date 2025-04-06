@@ -136,6 +136,14 @@ type WorkerSpec struct {
 	// Maximum times the workers in a slice can be restarted.
 	// Used with elasticSlices.
 	MaxSliceRestarts int32 `json:"maxSliceRestarts,omitempty"`
+
+	// The grace period is the duration in seconds after the processes running in the pod are sent
+	// a termination signal and the time when the processes are forcibly halted with a kill signal.
+	// This is set for Pathways workers only.
+	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty"`
+
+	// Priority class for the PathwaysJob workers if kueue is configured on the cluster.
+	PriorityClassName string `json:"priorityClassName,omitempty"`
 }
 
 // The ControllerSpec struct lists the specifications for the
@@ -181,6 +189,10 @@ type CustomComponentsSpec struct {
 	// Custom flags to be provided to this component.
 	// +optional
 	CustomFlags []string `json:"customFlags,omitempty"`
+
+	// Custom environment variables to be provided to this component.
+	// +optional
+	CustomEnv []corev1.EnvVar `json:"customEnv,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=pathways_server;worker;proxy_server;colocated_python_sidecar
