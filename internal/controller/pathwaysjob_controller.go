@@ -222,6 +222,7 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pw.GetName(),
 			Namespace: pw.GetNamespace(),
+			Labels:    pw.GetObjectMeta().GetLabels(),
 		},
 		Spec: jobsetv1alpha2.JobSetSpec{
 			StartupPolicy: &jobsetv1alpha2.StartupPolicy{
