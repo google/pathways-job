@@ -8792,6 +8792,7 @@ spec:
         command:
         - /manager
         image: us-docker.pkg.dev/cloud-tpu-v2-images/pathways-job/pathwaysjob-controller:v0.1.0
+        imagePullPolicy: Always
         livenessProbe:
           httpGet:
             path: /healthz
