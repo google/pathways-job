@@ -668,7 +668,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 	// Append all the custom pathways worker flags to the existing flags.
 	args = AppendCustomComponentFlags(pw, pathwaysjob.PathwaysWorker, args)
 
-	// Update backOffLimit based on MaxSliceRestarts as specified by the user.
+	// Update backOffLimit based on MaxSliceRestarts.
 	if pw.Spec.Controller.ElasticSlices > 0 && pw.Spec.Workers[0].MaxSliceRestarts > 0 {
 		backOffLimit = ptr.To(int32(NumVMs * pw.Spec.Workers[0].MaxSliceRestarts))
 	}
@@ -833,6 +833,7 @@ func MakePathwaysHeadPodSpec(pw *pathwaysjob.PathwaysJob) *corev1.PodSpec {
 		pathwaysHeadPodSpec.HostNetwork = true
 		pathwaysHeadPodSpec.DNSPolicy = corev1.DNSClusterFirstWithHostNet
 		pathwaysHeadPodSpec.InitContainers = append(pathwaysHeadPodSpec.InitContainers, initContainerList...)
+		injectJAXBackendTargetIntoMainContainer(pw, pathwaysHeadPodSpec)
 	} else {
 		// In Headless mode, RM and proxy are the the main containers.
 		// Ensure DNSPolicy and HostNetwork are set as needed.
@@ -846,6 +847,27 @@ func MakePathwaysHeadPodSpec(pw *pathwaysjob.PathwaysJob) *corev1.PodSpec {
 		} // end PodSpec
 	}
 	return pathwaysHeadPodSpec
+}
+
+// Inject the JAX environment variables in the main container where the user's JAX workload is run.
+func injectJAXBackendTargetIntoMainContainer(pw *pathwaysjob.PathwaysJob, pathwaysHeadPodSpec *corev1.PodSpec) {
+	env := []corev1.EnvVar{
+		{Name: "PATHWAYS_HEAD", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.labels['jobset.sigs.k8s.io/coordinator']"}}},
+		{Name: "JAX_PLATFORMS", Value: "proxy"},
+		{Name: "XCLOUD_ENVIRONMENT", Value: "GCP"},
+		{Name: "JAX_BACKEND_TARGET", Value: fmt.Sprintf("grpc://$(PATHWAYS_HEAD):%d", PathwaysProxyPort)},
+	}
+	for i, _ := range pathwaysHeadPodSpec.Containers {
+		// Check that the container name is "MainContainerName" or "main" by default.
+		if pathwaysHeadPodSpec.Containers[i].Name == pw.Spec.Controller.MainContainerName {
+			if pathwaysHeadPodSpec.Containers[i].Env == nil {
+				pathwaysHeadPodSpec.Containers[i].Env = env
+			} else {
+				pathwaysHeadPodSpec.Containers[i].Env = append(pathwaysHeadPodSpec.Containers[i].Env, env...)
+			}
+		}
+	}
+
 }
 
 func MakePathwaysHeadReplicatedJob(pathwaysHeadPodSpec corev1.PodSpec) jobsetv1alpha2.ReplicatedJob {

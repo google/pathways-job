@@ -97,6 +97,9 @@ spec:
                     x-kubernetes-validations:
                     - message: enableMetricsCollection is immutable
                       rule: self == oldSelf
+                  mainContainerName:
+                    default: main
+                    type: string
                   template:
                     description: |-
                       UserPodTemplate accepts a pod composed of user's workload
@@ -8382,6 +8385,7 @@ spec:
                     Pathways workers.
                   properties:
                     maxSliceRestarts:
+                      default: 1
                       description: |-
                         Maximum times the workers in a slice can be restarted.
                         Used with elasticSlices.

@@ -15,12 +15,12 @@
 apiVersion: pathways-job.pathways.domain/v1
 kind: PathwaysJob
 metadata:
-  name: pathways-elastic-trial
+  name: pathways-elastic
 spec:
   maxRestarts: 0
   workers:
-  - type: ct5p-hightpu-4t
-    topology: 4x4x4
+  - type: ct4p-hightpu-4t
+    topology: 2x2x2
     numSlices: 2
     maxSliceRestarts: 4 # For elastic training
   pathwaysDir: "gs://<test-bucket>/tmp" #This bucket needs to be created in advance.
@@ -28,17 +28,11 @@ spec:
     # #Pod template for training, default mode.
     deploymentMode: default
     elasticSlices: 1 # For elastic training
+    mainContainerName: elastic-main
     template: # UserPodTemplate
       spec:
         containers:
-        - name: user
-          env:
-          - name: XCLOUD_ENVIRONMENT
-            value: GCP
-          - name: JAX_PLATFORMS
-            value: proxy
-          - name: JAX_BACKEND_TARGET
-            value: grpc://pathways-elastic-trial-pathways-head-0-0.pathways-elastic-trial:29000
+        - name: elastic-main
           image: python:3.13
           imagePullPolicy: Always
           command:

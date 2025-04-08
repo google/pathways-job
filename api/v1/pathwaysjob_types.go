@@ -135,6 +135,7 @@ type WorkerSpec struct {
 
 	// Maximum times the workers in a slice can be restarted.
 	// Used with elasticSlices.
+	// +kubebuilder:default=1
 	MaxSliceRestarts int32 `json:"maxSliceRestarts,omitempty"`
 
 	// The grace period is the duration in seconds after the processes running in the pod are sent
@@ -158,6 +159,9 @@ type ControllerSpec struct {
 	// workload will be deployed separately, as a pod.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="deploymentMode is immutable"
 	DeploymentMode DeploymentMode `json:"deploymentMode"`
+
+	// +kubebuilder:default="main"
+	MainContainerName string `json:"mainContainerName,omitempty"`
 
 	// Enables metrics collection for the PathwaysJob
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="enableMetricsCollection is immutable"
