@@ -19,25 +19,18 @@ metadata:
 spec:
   maxRestarts: 10
   workers:
-  - type: ct5p-hightpu-4t
-    topology: 4x4x4
+  - type: ct4p-hightpu-4t
+    topology: 2x2x2
     numSlices: 2
-  pathwaysDir: "gs://test-bucket/tmp" #This bucket needs to be created in advance.
+  pathwaysDir: "gs://<test-bucket>/tmp" #This bucket needs to be created in advance.
   controller:
     # #Pod template for training, default mode.
-
+    mainContainerName: main-workload
     deploymentMode: default
     template: # UserPodTemplate
       spec:
         containers:
-        - name: user
-          env:
-          - name: XCLOUD_ENVIRONMENT
-            value: GCP
-          - name: JAX_PLATFORMS
-            value: proxy
-          - name: JAX_BACKEND_TARGET
-            value: grpc://pathways-trial-pathways-head-0-0.pathways-trial:29000
+        - name: main-workload
           image: python:3.13
           imagePullPolicy: Always
           command:

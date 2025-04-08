@@ -15,24 +15,25 @@
 apiVersion: pathways-job.pathways.domain/v1
 kind: PathwaysJob
 metadata:
-  name: pathways-colocatedpython-trial
+  name: pathways-colocated
 spec:
   maxRestarts: 0
   customComponents:
   - componentType: colocated_python_sidecar
     image: <Colocated python sidecar image> # Provide colocated python sidecar image
   workers:
-  - type: ct5p-hightpu-4t
-    topology: 4x4x4
+  - type: ct4p-hightpu-4t
+    topology: 2x2x2
     numSlices: 2
   pathwaysDir: "gs://<test-bucket>/tmp" #This bucket needs to be created in advance.
   controller:
     # #Pod template for training, default mode.
     deploymentMode: default
+    mainContainerName: main
     template: # UserPodTemplate
       spec:
         containers:
-        - name: user
+        - name: main
           env:
           - name: XCLOUD_ENVIRONMENT
             value: GCP
