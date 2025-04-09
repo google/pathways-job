@@ -1,14 +1,18 @@
 # pathways-job
 PathwaysJob API is an OSS Kubernetes-native API, to deploy ML training and batch inference workloads, using Pathways on GKE. 
-//ToDo(roshanin) - add intro for Pathways.
-## Description
-The PathwaysJob is an API that provides an easy way to run JAX workloads using Pathways. It support two modes of deployment. A PathwaysJob instance bundles the Pathways resource manager(RM) AKA Pathways server, the Pathways proxy server and the user workload containers into a single pod called "pathways-head". When the user pod is not provided (headless workloads), the "pathways-head" pod consists of the Pathways RM and the proxy server.
+
+## Introduction to Pathways on Cloud
+Pathways is a system designed to enable the creation of large-scale, multi-task, and sparsely activated machine learning systems. It allows for the use of thousands or tens of thousands of accelerators, with the ability to dynamically allocate varying amounts of compute for different tasks based on their processing requirements. Pathways simplifies large-scale machine learning computations by enabling a single JAX client to orchestrate workloads across multiple large TPU slices, potentially spanning hundreds or thousands of TPU chips. Pathways is used internally at Google to train large models like Gemini. Pathways on Cloud brings the same benefits to Google Cloud customers.
+
+## Description of PathwaysJob
+PathwaysJob is an API that provides an easy way to run JAX workloads using Pathways. A PathwaysJob instance bundles the Pathways resource manager(RM) AKA Pathways server, the Pathways proxy server and the user workload containers into a single pod named `pathways-head`. When a user pod is not provided (headless workloads), the `pathways-head` pod consists of the Pathways RM and the proxy server containers.
+It supports the following two deployment modes: ColocateHeadWithWorkers and Default.
 ### ColocateHeadWithWorkers mode
-The 'colocate_head_with_workers' mode deploys the "pathways-head" pod besides a "worker" pod on one of the TPU workers. This is preferred for Pathways batch inference workloads, where latency is crucial.
+The `colocate_head_with_workers` mode deploys the `pathways-head` pod besides a `worker` pod on one of the TPU workers. This is preferred for Pathways batch inference workloads, where latency is crucial.
 ### Default mode
-The "pathways-head" pod is schedule on a CPU nodepool and the "workers" are scheduled on TPUs. The default mode is preferred for Pathways training workloads where the worker utilizes the TPUs completely.
+The `pathways-head` pod is schedule on a CPU nodepool and the `workers` are scheduled on TPUs. The default mode is preferred for Pathways training workloads where the worker utilizes the TPUs completely.
 ### With a dockerized workload
-The user workload is scheduled as a container within the "pathways-head" pod.
+The user workload is scheduled as a container within the `pathways-head` pod.
 ### Headless mode for interactive supercomputing
 The user workload is typically on a Vertex AI notebook, so users can connect to the PathwaysJob via port-forwarding.
 
@@ -61,19 +65,19 @@ make deploy IMG=<some-registry>/pathways-job:tag
 privileges or be logged in as admin.
 
 **Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
+You can apply the examples from the config/samples:
 
 ```sh
-kubectl apply -k config/samples/
+kubectl apply -k config/samples/<example name>.yaml
 ```
 
->**NOTE**: Ensure that the samples has default values to test it out.
+>**NOTE**: Ensure that the examples has default values to test it out.
 
 ### To Uninstall
 **Delete the instances (CRs) from the cluster:**
 
 ```sh
-kubectl delete -k config/samples/
+kubectl delete -k config/samples/<example name>.yaml
 ```
 
 **Delete the APIs(CRDs) from the cluster:**
@@ -83,13 +87,13 @@ make deploy IMG=$IMAGE
 ```
 
 ### Create instances of your solution
-You can apply the samples (examples) from the config/sample:
+You can apply the examples from the config/samples:
 
 ```sh
 kubectl apply -k config/samples/<example name>.yaml
 ```
 >**NOTE**: Refer to the examples showcasing PathwaysJob features.
-Ensure that the samples has default values to test it out.
+Ensure that the examples has default values to test it out.
 
 ### Delete the instances (CRs) from the cluster:**
 
@@ -105,7 +109,6 @@ make undeploy
 
 
 ## Contributing
-We welcome contributions! Please look at [contributing.md](/usr/local/google/home/roshanin/pathways-job/docs/contributing.md).
 We welcome contributions! Please look at [contributing.md](/usr/local/google/home/roshanin/pathways-job/docs/contributing.md).
 More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
 
