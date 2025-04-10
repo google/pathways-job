@@ -119,7 +119,7 @@ var ValidTpuTopologiesMap = map[string][]string{
 	},
 	//v5e
 	"ct5lp-hightpu-4t": {
-		"2x2", "4x4", "4x8", "8x8", "8x16", "16x16",
+		"2x2", "2x4", "4x4", "4x8", "8x8", "8x16", "16x16",
 	},
 	"ct5lp-hightpu-8t": {"2x4"},
 	//v4
