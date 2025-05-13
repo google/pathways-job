@@ -29,8 +29,14 @@ The user workload is typically on a Vertex AI notebook, so users can connect to 
 ### Install a released version
 To install the latest released version of PathwaysJob version on your cluster, run the following command:
 ```sh
-VERSION=v0.1.0
+VERSION=v0.1.1
 kubectl apply --server-side -f https://github.com/google/pathways-job/releases/download/$VERSION/install.yaml
+```
+
+To uninstall the latest released version of PathwaysJob version on your cluster, run the following command:
+```sh
+VERSION=v0.1.1
+kubectl delete -f https://github.com/google/pathways-job/releases/download/$VERSION/install.yaml
 ```
 
 ### Build and install from source
@@ -71,37 +77,16 @@ You can apply the examples from the config/samples:
 kubectl apply -k config/samples/<example name>.yaml
 ```
 
->**NOTE**: Ensure that the examples has default values to test it out.
-
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
-
-```sh
-kubectl delete -k config/samples/<example name>.yaml
-```
-
-**Delete the APIs(CRDs) from the cluster:**
-
-```sh
-make deploy IMG=$IMAGE
-```
-
-### Create instances of your solution
-You can apply the examples from the config/samples:
-
-```sh
-kubectl apply -k config/samples/<example name>.yaml
-```
 >**NOTE**: Refer to the examples showcasing PathwaysJob features.
-Ensure that the examples has default values to test it out.
+>Ensure that the examples has default values to test it out.
 
-### Delete the instances (CRs) from the cluster:**
-
+**Delete the instances (CRs) from the cluster:**
+You can delete the examples from the config/samples, applied above:
 ```sh
 kubectl delete -k config/samples/<example name>.yaml
 ```
 
-**UnDeploy the controller from the cluster:**
+**Undeploy the controller from the cluster:**
 
 ```sh
 make undeploy
