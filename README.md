@@ -94,7 +94,7 @@ make undeploy
 
 
 ## Contributing
-We welcome contributions! Please look at [contributing.md](/usr/local/google/home/roshanin/pathways-job/docs/contributing.md).
+We welcome contributions! Please look at [contributing.md](https://github.com/google/pathways-job/blob/main/docs/contributing.md).
 More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
 
 ## License
