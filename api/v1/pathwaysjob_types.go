@@ -211,6 +211,10 @@ const (
 	PathwaysWorker PathwaysComponentType = "worker"
 	//Pathways colocated python sidecar component, hosted on the workers.
 	PathwaysColocatedPythonSidecar PathwaysComponentType = "colocated_python_sidecar"
+	// Pathways GCSFuse sidecar for the client program
+	PathwaysGCSFuseClientSidecar PathwaysComponentType = "gcsfuse_client_sidecar"
+	// Pathways GCSFuse sidecar for the workers
+	PathwaysGCSFuseWorkerSidecar PathwaysComponentType = "gcsfuse_worker_sidecar"
 )
 
 // PathwaysJobStatus defines the observed state of PathwaysJob
