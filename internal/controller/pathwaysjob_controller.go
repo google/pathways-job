@@ -561,7 +561,7 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, isInitContainer b
 		Args:            args,
 		Env:             env,
 		Ports:           []corev1.ContainerPort{{ContainerPort: PathwaysRMPort}, {ContainerPort: 29002}},
-		Resources:       corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(8, resource.DecimalSI), "memory": *resource.NewQuantity(16000000000, resource.DecimalSI)}}, // 16GB
+		Resources:       corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(60, resource.DecimalSI), "memory": *resource.NewQuantity(490000000000, resource.DecimalSI)}}, // 490GB
 	}
 
 	// Init containers can have restartPolicy but regular containers cannot have restartPolicy.
@@ -603,7 +603,7 @@ func MakeProxyContainer(pw *pathwaysjob.PathwaysJob, isInitContainer bool) (*cor
 		Args:            args,
 		Env:             env,
 		Ports:           []corev1.ContainerPort{{ContainerPort: PathwaysProxyPort}},
-		Resources:       corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(16, resource.DecimalSI), "memory": *resource.NewQuantity(100000000000, resource.DecimalSI)}}, //100GiB
+		Resources:       corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(60, resource.DecimalSI), "memory": *resource.NewQuantity(490000000000, resource.DecimalSI)}}, //490GB
 	}
 	// Init containers can have restartPolicy but regular containers cannot have restartPolicy.
 	var restartPolicy corev1.ContainerRestartPolicy
