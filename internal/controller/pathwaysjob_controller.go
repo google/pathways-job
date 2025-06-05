@@ -227,7 +227,7 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 		Spec: jobsetv1alpha2.JobSetSpec{
 			StartupPolicy: &jobsetv1alpha2.StartupPolicy{
 				StartupPolicyOrder: jobsetv1alpha2.InOrder,
-			}, // create jobs in the order specified in JobSet.
+			}, // create jobs in the order specified in JobSet - pathways-head first.
 			FailurePolicy: &jobsetv1alpha2.FailurePolicy{
 				MaxRestarts: pw.Spec.MaxRestarts,
 			},
@@ -475,6 +475,7 @@ func makeImageTagUsingPathwaysVersion(pw *pathwaysjob.PathwaysJob) string {
 
 // Construct success policy based on deployment mode and user workload spec.
 func MakeSuccessPolicy(pw *pathwaysjob.PathwaysJob) *jobsetv1alpha2.SuccessPolicy {
+	// Mark the Job successful if pathways-head pod succeeds.
 	userJobName := PathwaysHeadJobName
 	if isUserPodProvided(pw) {
 		return &jobsetv1alpha2.SuccessPolicy{Operator: jobsetv1alpha2.OperatorAll, TargetReplicatedJobs: []string{userJobName}}
@@ -824,7 +825,8 @@ func MakePathwaysHeadPodSpec(pw *pathwaysjob.PathwaysJob) *corev1.PodSpec {
 	if isUserPodProvided(pw) {
 		// Inject Pathways RM and proxy into the user provided pod spec
 		// in the form of initContainers. The user container is the main container,
-		// whose success or failure will be tracked.
+		// whose success or failure will be tracked to determine the success of the
+		// pathways-head pod.
 		// Ensure DNSPolicy and HostNetwork are set as needed.
 		RMContainerSpec, _ := MakeResourceManagerContainer(pw, true)
 		ProxyContainerSpec, _ := MakeProxyContainer(pw, true)
@@ -875,6 +877,11 @@ func MakePathwaysHeadReplicatedJob(pathwaysHeadPodSpec corev1.PodSpec) jobsetv1a
 		Name:     PathwaysHeadJobName,
 		Replicas: 1,
 		Template: batchv1.JobTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					"alpha.jobset.sigs.k8s.io/exclusive-topology": "kubernetes.io/hostname",
+				}, // needed so that head pods are placed exclusively on CPU nodes.
+			},
 			Spec: batchv1.JobSpec{
 				BackoffLimit: ptr.To(int32(0)),
 				Completions:  ptr.To(int32(1)),
