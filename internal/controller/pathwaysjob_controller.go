@@ -561,7 +561,7 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, isInitContainer b
 		Args:            args,
 		Env:             env,
 		Ports:           []corev1.ContainerPort{{ContainerPort: PathwaysRMPort}, {ContainerPort: 29002}},
-		Resources:       corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(4, resource.DecimalSI), "memory": *resource.NewQuantity(8000000000, resource.DecimalSI)}},
+		Resources:       corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(8, resource.DecimalSI), "memory": *resource.NewQuantity(16000000000, resource.DecimalSI)}}, // 16GB
 	}
 
 	// Init containers can have restartPolicy but regular containers cannot have restartPolicy.

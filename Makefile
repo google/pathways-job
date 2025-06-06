@@ -1,7 +1,7 @@
 # Image URL to use all building/pushing image targets
 IMAGE_REGISTRY ?= us-docker.pkg.dev/cloud-tpu-v2-images/pathways-job
 IMAGE_NAME ?= pathwaysjob-controller
-IMAGE_TAG ?= v0.1.0
+IMAGE_TAG ?= v0.1.1
 IMG ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.30.0
