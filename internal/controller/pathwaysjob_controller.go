@@ -872,15 +872,20 @@ func injectJAXBackendTargetIntoMainContainer(pw *pathwaysjob.PathwaysJob, pathwa
 
 }
 
-func MakePathwaysHeadReplicatedJob(pathwaysHeadPodSpec corev1.PodSpec) jobsetv1alpha2.ReplicatedJob {
+func MakePathwaysHeadReplicatedJob(pw *pathwaysjob.PathwaysJob, pathwaysHeadPodSpec corev1.PodSpec) jobsetv1alpha2.ReplicatedJob {
+	var annotations map[string]string
+	annotations = nil
+	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Default {
+		annotations = map[string]string{
+			"alpha.jobset.sigs.k8s.io/exclusive-topology": "kubernetes.io/hostname",
+		} // needed so that head pods are placed exclusively on CPU nodes.
+	}
 	pathwaysHeadJob := jobsetv1alpha2.ReplicatedJob{
 		Name:     PathwaysHeadJobName,
 		Replicas: 1,
 		Template: batchv1.JobTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{
-				Annotations: map[string]string{
-					"alpha.jobset.sigs.k8s.io/exclusive-topology": "kubernetes.io/hostname",
-				}, // needed so that head pods are placed exclusively on CPU nodes.
+				Annotations: annotations,
 			},
 			Spec: batchv1.JobSpec{
 				BackoffLimit: ptr.To(int32(0)),
@@ -905,12 +910,12 @@ func MakePathwaysHeadJobForColocateHeadWithWorkersDeployment(ctx context.Context
 	podSpec.Affinity = affinitySpec
 	podSpec.Tolerations = tolerations
 
-	return MakePathwaysHeadReplicatedJob(podSpec), nil
+	return MakePathwaysHeadReplicatedJob(pw, podSpec), nil
 }
 
 // Construct pathways-head replicated job containing Pathways RM, Pathways Proxy and the user job containers for the 'default' deployment mode.
 // In the default mode, the Pathways head pod is placed on CPU nodes.
 func MakePathwaysHeadJobForDefaultDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1alpha2.ReplicatedJob, error) {
 	podSpec := *MakePathwaysHeadPodSpec(pw)
-	return MakePathwaysHeadReplicatedJob(podSpec), nil
+	return MakePathwaysHeadReplicatedJob(pw, podSpec), nil
 }
