@@ -19,4 +19,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: us-docker.pkg.dev/cloud-tpu-v2-images/pathways-job/pathwaysjob-controller
-  newTag: v0.1.1
+  newTag: v0.1.2
