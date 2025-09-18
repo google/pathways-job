@@ -18,5 +18,5 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 images:
 - name: controller
-  newName: us-docker.pkg.dev/cloud-tpu-v2-images/pathways-job/pathwaysjob-controller
-  newTag: v0.1.2
+  newName: us-docker.pkg.dev/cloud-tpu-multipod-dev/pathways/controller
+  newTag: akshu-ssi-test-4

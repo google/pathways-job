@@ -172,6 +172,8 @@ type ControllerSpec struct {
 	// https://pkg.go.dev/k8s.io/api/core/v1#PodTemplateSpec
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="userPodTemplate is immutable"
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +crd:generateEmbeddedObjectMeta=true
 	UserPodTemplate *corev1.PodTemplateSpec `json:"template,omitempty" protobuf:"bytes,6,opt,name=template"`
 
 	// Enables elasticity and sets the maximum number of slices
