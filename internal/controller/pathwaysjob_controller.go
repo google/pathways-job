@@ -216,6 +216,11 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 	}
 
 	workerJob, _ := MakeWorkerJob(ctx, pw)
+	if pw.Spec.Controller.DeploymentMode == pathwaysjob.ColocateHeadWithWorkers {
+		affinity, _ := MakePodAffinityRules(pw)
+		workerJob.Template.Spec.Template.Spec.Affinity = affinity
+	}
+
 	successPolicy := MakeSuccessPolicy(pw)
 
 	mainJobSetConfig := jobsetv1alpha2.JobSet{
@@ -720,10 +725,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 							}, // end Pathways worker container
 						},
 						InitContainers: initContainers,
-						NodeSelector: map[string]string{
-							"cloud.google.com/gke-tpu-accelerator": GKEAcceleratorType,
-							"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
-						},
+						NodeSelector:   *MakeTPUNodeSelector(pw),
 						Volumes: []corev1.Volume{
 							{
 								Name: "shared-tmp",
@@ -786,6 +788,15 @@ func MakePodAffinityRules(pw *pathwaysjob.PathwaysJob) (*corev1.Affinity, error)
 		}, // end PodAntiAffinity
 	} // end Affinity
 	return &affinity, nil
+}
+
+// Affinity rules to allow the pathways-head pod to coexist with worker pod in the 'colocated_head_with_workers' mode.
+func MakeTPUNodeSelector(pw *pathwaysjob.PathwaysJob) *map[string]string {
+	nodeSelector := map[string]string{
+		"cloud.google.com/gke-tpu-accelerator": GKEAcceleratorType,
+		"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
+	}
+	return &nodeSelector
 }
 
 // Checks whether user pod is provided or the workload is in headless mode.
@@ -904,10 +915,9 @@ func MakePathwaysHeadReplicatedJob(pw *pathwaysjob.PathwaysJob, pathwaysHeadPodS
 // In the colocate_head_with_workers mode, the Pathways head pod is placed on TPU nodes, beside a worker pod.
 func MakePathwaysHeadJobForColocateHeadWithWorkersDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1alpha2.ReplicatedJob, error) {
 	podSpec := *MakePathwaysHeadPodSpec(pw)
-	// Add affinity and tolerations to allow the Pathways head pod to be scheduled on TPUs.
-	affinitySpec, _ := MakePodAffinityRules(pw)
+	podSpec.NodeSelector = *MakeTPUNodeSelector(pw)
+	// Add tolerations to allow the Pathways head pod to be scheduled on TPUs.
 	tolerations := MakeTolerationToAllowSchedulingOnTPU(pw)
-	podSpec.Affinity = affinitySpec
 	podSpec.Tolerations = tolerations
 
 	return MakePathwaysHeadReplicatedJob(pw, podSpec), nil
