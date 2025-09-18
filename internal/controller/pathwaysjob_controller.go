@@ -474,8 +474,9 @@ func makeImageTagUsingPathwaysVersion(pw *pathwaysjob.PathwaysJob) string {
 	return tag
 }
 
-// makeWorkerJobNodeSelector returns a node selector combined by user specified node selector and other necessary labels.
-func makeWorkerJobNodeSelector(pw *pathwaysjob.PathwaysJob) map[string]string {
+// makeTPUNodeSelector returns a node selector combined by user specified node selector and other necessary labels.
+// Used for pods that need to be placed on nodes with TPUs (e.g. workers or colocated head pods)
+func makeTPUNodeSelector(pw *pathwaysjob.PathwaysJob) map[string]string {
 	ns := pw.Spec.Workers[0].NodeSelector
 	if ns == nil {
 		ns = make(map[string]string)
@@ -732,7 +733,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 							}, // end Pathways worker container
 						},
 						InitContainers: initContainers,
-						NodeSelector:   makeWorkerJobNodeSelector(pw),
+						NodeSelector:   makeTPUNodeSelector(pw),
 						Volumes: []corev1.Volume{
 							{
 								Name: "shared-tmp",
@@ -751,6 +752,12 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 			},
 		},
 	} // end worker replicated job
+
+	if pw.Spec.Controller.DeploymentMode == pathwaysjob.ColocateHeadWithWorkers {
+		affinity, _ := MakePodAffinityRules(pw)
+		workerJob.Template.Spec.Template.Spec.Affinity = affinity
+	}
+
 	return workerJob, nil
 }
 
@@ -811,22 +818,6 @@ func GetContainerListFromUserPodSpec(pw *pathwaysjob.PathwaysJob) ([]corev1.Cont
 		return pw.Spec.Controller.UserPodTemplate.Spec.Containers, nil
 	}
 	return nil, fmt.Errorf("no user pod provided, probably headless mode")
-}
-
-// Pods containing the following Toleration are allowed to be scheduled on TPUs.
-// This toleration is needed only for the colocate_head_with_workers mode.
-func MakeTolerationToAllowSchedulingOnTPU(pw *pathwaysjob.PathwaysJob) []corev1.Toleration {
-	if pw.Spec.Controller.DeploymentMode == pathwaysjob.ColocateHeadWithWorkers {
-		return []corev1.Toleration{
-			{
-				Key:      "google.com/tpu",
-				Operator: "Exists",
-				Effect:   "NoSchedule",
-			},
-		}
-	} else {
-		return []corev1.Toleration{}
-	}
 }
 
 func MakePathwaysHeadPodSpec(pw *pathwaysjob.PathwaysJob) *corev1.PodSpec {
@@ -927,11 +918,7 @@ func MakePathwaysHeadReplicatedJob(pw *pathwaysjob.PathwaysJob, pathwaysHeadPodS
 // In the colocate_head_with_workers mode, the Pathways head pod is placed on TPU nodes, beside a worker pod.
 func MakePathwaysHeadJobForColocateHeadWithWorkersDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1alpha2.ReplicatedJob, error) {
 	podSpec := *MakePathwaysHeadPodSpec(pw)
-	// Add affinity and tolerations to allow the Pathways head pod to be scheduled on TPUs.
-	affinitySpec, _ := MakePodAffinityRules(pw)
-	tolerations := MakeTolerationToAllowSchedulingOnTPU(pw)
-	podSpec.Affinity = affinitySpec
-	podSpec.Tolerations = tolerations
+	podSpec.NodeSelector = makeTPUNodeSelector(pw)
 
 	return MakePathwaysHeadReplicatedJob(pw, podSpec), nil
 }
