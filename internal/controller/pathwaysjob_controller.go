@@ -218,8 +218,8 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 	workerJob, _ := MakeWorkerJob(ctx, pw)
 	successPolicy := MakeSuccessPolicy(pw)
 
-	log.Info("findme1", pw)
-	log.Info("findme2", pw.GetObjectMeta())
+	log.Info("findme1", "pw", pw)
+	log.Info("findme2", "meta", pw.GetObjectMeta())
 	mainJobSetConfig := jobsetv1alpha2.JobSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pw.GetName(),
@@ -886,7 +886,7 @@ func MakePathwaysHeadReplicatedJob(ctx context.Context, pw *pathwaysjob.Pathways
 	var annotations map[string]string
 	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
 	ctx = ctrl.LoggerInto(ctx, log)
-	log.Info("findme3", pw.GetObjectMeta().GetAnnotations())
+	log.Info("findme3", "anno", pw.GetObjectMeta().GetAnnotations())
 	// Start with annotations from the PathwaysJob.
 	annotations = make(map[string]string)
 	for k, v := range pw.GetObjectMeta().GetAnnotations() {
