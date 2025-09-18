@@ -218,8 +218,8 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 	workerJob, _ := MakeWorkerJob(ctx, pw)
 	successPolicy := MakeSuccessPolicy(pw)
 
-	fmt.Println("findme1", pw)
-	fmt.Println("findme2", pw.GetObjectMeta())
+	log.Info("findme1", pw)
+	log.Info("findme2", pw.GetObjectMeta())
 	mainJobSetConfig := jobsetv1alpha2.JobSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pw.GetName(),
@@ -851,6 +851,13 @@ func MakePathwaysHeadPodSpec(pw *pathwaysjob.PathwaysJob) *corev1.PodSpec {
 			Containers:  containerList,
 		} // end PodSpec
 	}
+	// The user pod template can have its own annotations.
+	// We should merge them with the annotations from the PathwaysJob.
+	if isUserPodProvided(pw) && pw.Spec.Controller.UserPodTemplate.Annotations != nil {
+		for k, v := range pw.GetObjectMeta().GetAnnotations() {
+			pw.Spec.Controller.UserPodTemplate.Annotations[k] = v
+		}
+	}
 	return pathwaysHeadPodSpec
 }
 
@@ -875,15 +882,21 @@ func injectJAXBackendTargetIntoMainContainer(pw *pathwaysjob.PathwaysJob, pathwa
 
 }
 
-func MakePathwaysHeadReplicatedJob(pw *pathwaysjob.PathwaysJob, pathwaysHeadPodSpec corev1.PodSpec) jobsetv1alpha2.ReplicatedJob {
+func MakePathwaysHeadReplicatedJob(ctx context.Context, pw *pathwaysjob.PathwaysJob, pathwaysHeadPodSpec corev1.PodSpec) jobsetv1alpha2.ReplicatedJob {
 	var annotations map[string]string
-	annotations = pw.GetObjectMeta().GetAnnotations()
-	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Default {
-		annotations = map[string]string{
-			"alpha.jobset.sigs.k8s.io/exclusive-topology": "kubernetes.io/hostname",
-		} // needed so that head pods are placed exclusively on CPU nodes.
+	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
+	ctx = ctrl.LoggerInto(ctx, log)
+	log.Info("findme3", pw.GetObjectMeta().GetAnnotations())
+	// Start with annotations from the PathwaysJob.
+	annotations = make(map[string]string)
+	for k, v := range pw.GetObjectMeta().GetAnnotations() {
+		annotations[k] = v
 	}
-	fmt.Println("findme3 pw.GetObjectMeta().GetAnnotations():", pw.GetObjectMeta().GetAnnotations())
+
+	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Default {
+		// needed so that head pods are placed exclusively on CPU nodes.
+		annotations["alpha.jobset.sigs.k8s.io/exclusive-topology"] = "kubernetes.io/hostname"
+	}
 	pathwaysHeadJob := jobsetv1alpha2.ReplicatedJob{
 		Name:     PathwaysHeadJobName,
 		Replicas: 1,
@@ -897,8 +910,8 @@ func MakePathwaysHeadReplicatedJob(pw *pathwaysjob.PathwaysJob, pathwaysHeadPodS
 				Parallelism:  ptr.To(int32(1)),
 				Template: corev1.PodTemplateSpec{
 					Spec: pathwaysHeadPodSpec,
-					ObjectMeta: metav1.ObjectMeta{ // todo
-						Annotations: pw.GetObjectMeta().GetAnnotations(),
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: annotations,
 					},
 				},
 			},
@@ -917,12 +930,13 @@ func MakePathwaysHeadJobForColocateHeadWithWorkersDeployment(ctx context.Context
 	podSpec.Affinity = affinitySpec
 	podSpec.Tolerations = tolerations
 
-	return MakePathwaysHeadReplicatedJob(pw, podSpec), nil
+	return MakePathwaysHeadReplicatedJob(ctx, pw, podSpec), nil
 }
 
 // Construct pathways-head replicated job containing Pathways RM, Pathways Proxy and the user job containers for the 'default' deployment mode.
 // In the default mode, the Pathways head pod is placed on CPU nodes.
 func MakePathwaysHeadJobForDefaultDeployment(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1alpha2.ReplicatedJob, error) {
 	podSpec := *MakePathwaysHeadPodSpec(pw)
-	return MakePathwaysHeadReplicatedJob(pw, podSpec), nil
+	return MakePathwaysHeadReplicatedJob(ctx, pw, podSpec), nil
 }
+

@@ -19,4 +19,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: us-docker.pkg.dev/cloud-tpu-multipod-dev/pathways/controller
-  newTag: akshu-ssi-test-2
+  newTag: akshu-ssi-test-3
