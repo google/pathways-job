@@ -218,11 +218,14 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 	workerJob, _ := MakeWorkerJob(ctx, pw)
 	successPolicy := MakeSuccessPolicy(pw)
 
+	fmt.Println("findme1", pw)
+	fmt.Println("findme2", pw.GetObjectMeta())
 	mainJobSetConfig := jobsetv1alpha2.JobSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pw.GetName(),
 			Namespace: pw.GetNamespace(),
 			Labels:    pw.GetObjectMeta().GetLabels(),
+			Annotations: pw.GetObjectMeta().GetAnnotations(),
 		},
 		Spec: jobsetv1alpha2.JobSetSpec{
 			StartupPolicy: &jobsetv1alpha2.StartupPolicy{
@@ -874,12 +877,13 @@ func injectJAXBackendTargetIntoMainContainer(pw *pathwaysjob.PathwaysJob, pathwa
 
 func MakePathwaysHeadReplicatedJob(pw *pathwaysjob.PathwaysJob, pathwaysHeadPodSpec corev1.PodSpec) jobsetv1alpha2.ReplicatedJob {
 	var annotations map[string]string
-	annotations = nil
+	annotations = pw.GetObjectMeta().GetAnnotations()
 	if pw.Spec.Controller.DeploymentMode == pathwaysjob.Default {
 		annotations = map[string]string{
 			"alpha.jobset.sigs.k8s.io/exclusive-topology": "kubernetes.io/hostname",
 		} // needed so that head pods are placed exclusively on CPU nodes.
 	}
+	fmt.Println("findme3 pw.GetObjectMeta().GetAnnotations():", pw.GetObjectMeta().GetAnnotations())
 	pathwaysHeadJob := jobsetv1alpha2.ReplicatedJob{
 		Name:     PathwaysHeadJobName,
 		Replicas: 1,
@@ -893,6 +897,9 @@ func MakePathwaysHeadReplicatedJob(pw *pathwaysjob.PathwaysJob, pathwaysHeadPodS
 				Parallelism:  ptr.To(int32(1)),
 				Template: corev1.PodTemplateSpec{
 					Spec: pathwaysHeadPodSpec,
+					ObjectMeta: metav1.ObjectMeta{ // todo
+						Annotations: pw.GetObjectMeta().GetAnnotations(),
+					},
 				},
 			},
 		},
