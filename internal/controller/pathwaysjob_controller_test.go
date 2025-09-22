@@ -51,8 +51,11 @@ var _ = Describe("PathwaysJob Controller", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: "default",
+						Labels: map[string]string{
+							"test-label": "test-label-value",
+						},
 						Annotations: map[string]string{
-							"test-annotation": "test-value",
+							"test-annotation": "test-annotation-value",
 						},
 					},
 					Spec: pathwaysjobv1.PathwaysJobSpec{
@@ -108,10 +111,15 @@ var _ = Describe("PathwaysJob Controller", func() {
 			Expect(jobSet.Spec.ReplicatedJobs[0].Name).To(Equal(PathwaysHeadJobName))
 			Expect(jobSet.Spec.ReplicatedJobs[1].Name).To(Equal("worker"))
 
-			By("Checking if annotations were propagated to JobSet")
-			Expect(jobSet.Annotations).To(HaveKeyWithValue("test-annotation", "test-value"))
 			headJobTemplate := jobSet.Spec.ReplicatedJobs[0].Template
-			Expect(headJobTemplate.Annotations).To(HaveKeyWithValue("test-annotation", "test-value"))
+
+			By("Checking if labels were propagated to JobSet")
+			Expect(jobSet.Labels).To(HaveKeyWithValue("test-label", "test-label-value"))
+			Expect(headJobTemplate.Labels).To(HaveKeyWithValue("test-label", "test-label-value"))
+
+			By("Checking if annotations were propagated to JobSet")
+			Expect(jobSet.Annotations).To(HaveKeyWithValue("test-annotation", "test-annotation-value"))
+			Expect(headJobTemplate.Annotations).To(HaveKeyWithValue("test-annotation", "test-annotation-value"))
 		})
 	})
 })
