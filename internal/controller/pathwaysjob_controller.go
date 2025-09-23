@@ -142,14 +142,16 @@ func (r *PathwaysJobReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	pw := &pathwaysjob.PathwaysJob{}
 	log := ctrl.LoggerFrom(ctx).WithValues("pathwaysjob", klog.KObj(pw))
 	ctx = ctrl.LoggerInto(ctx, log)
+	log.Info("PathwaysJob: findme req: ", "req", req)
 
-	log.Info("PathwaysJob: CONTROLLER WORKING...", "req.NamespacedName", req.NamespacedName.String(), "req.Namespace", req.Namespace)
+	log.Info("PathwaysJob: CONTROLLER WORKING... findme req.NamespacedName:", "req.NamespacedName", req.NamespacedName.String(), "req.Namespace", req.Namespace)
 
 	// 1. Fetch the Pathways object
 	if err := r.Get(ctx, req.NamespacedName, pw); err != nil {
 		log.Info("PathwaysJob: Unable to fetch Pathways ")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	log.Info("PathwaysJob: findme fetched pw: ", "pw", pw)
 
 	// 2. Process the Pathways object and build a JobSet client
 	kubeconfig := ctrl.GetConfigOrDie()
@@ -218,12 +220,15 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 	workerJob, _ := MakeWorkerJob(ctx, pw)
 	successPolicy := MakeSuccessPolicy(pw)
 
-	log.Info("findme labels1: ", "labels", pw.GetObjectMeta().GetLabels())
+	log.Info("PathwaysJob: findme dummy log")
+	log.Info("PathwaysJob: findme meta:", "meta", pw.GetObjectMeta())
+	log.Info("PathwaysJob: findme annotations1: ", "anno", pw.GetObjectMeta().GetAnnotations())
+	log.Info("PathwaysJob: findme labels1: ", "labels", pw.GetObjectMeta().GetLabels())
 	mainJobSetConfig := jobsetv1alpha2.JobSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      pw.GetName(),
-			Namespace: pw.GetNamespace(),
-			Labels:    pw.GetObjectMeta().GetLabels(),
+			Name:        pw.GetName(),
+			Namespace:   pw.GetNamespace(),
+			Labels:      pw.GetObjectMeta().GetLabels(),
 			Annotations: pw.GetObjectMeta().GetAnnotations(),
 		},
 		Spec: jobsetv1alpha2.JobSetSpec{
@@ -238,6 +243,7 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 			ReplicatedJobs: []jobsetv1alpha2.ReplicatedJob{job, workerJob},
 		},
 	}
+	log.Info("PathwaysJob: findme mainJobSetConfig:", "mainJobSetConfig", mainJobSetConfig)
 
 	// Set Pathways controller as the owner of the JobSet for garbage collection.
 	if err := ctrl.SetControllerReference(pw, &mainJobSetConfig, r.Scheme); err != nil {
@@ -859,7 +865,7 @@ func MakePathwaysHeadPodSpec(ctx context.Context, pw *pathwaysjob.PathwaysJob) *
 		}
 	}
 	if isUserPodProvided(pw) && pw.Spec.Controller.UserPodTemplate.Labels != nil {
-		log.Info("findme labels2: ", "labels", pw.GetObjectMeta().GetLabels())
+		log.Info("PathwaysJob: findme labels2: ", "labels", pw.GetObjectMeta().GetLabels())
 		for k, v := range pw.GetObjectMeta().GetLabels() {
 			pw.Spec.Controller.UserPodTemplate.Labels[k] = v
 		}
@@ -902,9 +908,9 @@ func MakePathwaysHeadReplicatedJob(ctx context.Context, pw *pathwaysjob.Pathways
 		// needed so that head pods are placed exclusively on CPU nodes.
 		annotations["alpha.jobset.sigs.k8s.io/exclusive-topology"] = "kubernetes.io/hostname"
 	}
-	log.Info("findme labels3: ", "labels", pw.GetObjectMeta().GetLabels())
-  podLabels := make(map[string]string)
-  for k, v := range pw.GetObjectMeta().GetLabels() {
+	log.Info("PathwaysJob: findme labels3: ", "labels", pw.GetObjectMeta().GetLabels())
+	podLabels := make(map[string]string)
+	for k, v := range pw.GetObjectMeta().GetLabels() {
 		podLabels[k] = v
 	}
 	pathwaysHeadJob := jobsetv1alpha2.ReplicatedJob{
@@ -912,7 +918,7 @@ func MakePathwaysHeadReplicatedJob(ctx context.Context, pw *pathwaysjob.Pathways
 		Replicas: 1,
 		Template: batchv1.JobTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{
-				Labels:    podLabels,
+				Labels:      podLabels,
 				Annotations: annotations,
 			},
 			Spec: batchv1.JobSpec{
@@ -922,7 +928,7 @@ func MakePathwaysHeadReplicatedJob(ctx context.Context, pw *pathwaysjob.Pathways
 				Template: corev1.PodTemplateSpec{
 					Spec: pathwaysHeadPodSpec,
 					ObjectMeta: metav1.ObjectMeta{
-						Labels:    podLabels,
+						Labels:      podLabels,
 						Annotations: annotations,
 					},
 				},
