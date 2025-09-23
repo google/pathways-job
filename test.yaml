@@ -1,0 +1,33 @@
+apiVersion: pathways-job.pathways.domain/v1
+kind: PathwaysJob
+metadata:
+  name: pw-akshu-l6
+spec:
+  maxRestarts: 1
+  workers:
+    - type: ct4p-hightpu-4t
+      topology: 2x2x1
+      numSlices: 2
+  pathwaysDir: "gs://akshu-v4"
+  controller:
+    mainContainerName: main-workload
+    deploymentMode: default
+    template:
+      metadata:
+        labels:
+          team: "pw"
+        annotations:
+          gke-gcsfuse/volumes: "true"
+      spec:
+        containers:
+        - name: main-workload
+          image: python:3.13
+          imagePullPolicy: Always
+          command:
+          - /bin/sh
+          - -c
+          - |
+            pip install --upgrade pip
+            pip install -U --pre jax jaxlib -f https://storage.googleapis.com/jax-releases/jax_nightly_releases.html
+            pip install pathwaysutils
+            python -c "import jax; import pathwaysutils; pathwaysutils.initialize(); print(\"Number of JAX devices is\", len(jax.devices()))"
