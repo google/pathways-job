@@ -15,7 +15,7 @@ image:
   tag: v0.1.2
 
 manager:
-  # -- Replicas of the jobset controller deployment.
+  # -- Replicas of the pathways-job controller deployment.
   replicas: 1
   securityContext:
     allowPrivilegeEscalation: false
