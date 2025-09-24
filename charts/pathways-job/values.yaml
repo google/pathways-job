@@ -1,0 +1,67 @@
+# Default values for pathways-job-chart.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# -- Override the resource name
+nameOverride: ""
+# -- Override the resource name
+fullnameOverride: "pathways-job"
+
+image:
+  # -- Image repository.
+  repository: us-docker.pkg.dev/cloud-tpu-v2-images/pathways-job/pathwaysjob-controller
+  # -- Image pull policy.
+  pullPolicy: Always
+  tag: v0.1.2
+
+manager:
+  # -- Replicas of the jobset controller deployment.
+  replicas: 1
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - "ALL"
+  resources:
+    limits:
+      cpu: 500m
+      memory: 128Mi
+    requests:
+      cpu: 10m
+      memory: 64Mi
+  # -- ControllerManager's pod securityContext
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+metrics:
+  # -- Whether to enable Prometheus metrics exporting.
+  enable: false
+
+managerConfig:
+  # ControllerManager utilizes this yaml via manager-config Configmap.
+  controllerManagerConfigYaml: |-
+    apiVersion: config.kueue.x-k8s.io/v1beta1
+    kind: Configuration
+    health:
+      healthProbeBindAddress: :8081
+    metrics:
+      bindAddress: :8443
+    # enableClusterQueueResources: true
+    webhook:
+      port: 9443
+    leaderElection:
+      leaderElect: true
+      resourceName: c1f6bfd2.kueue.x-k8s.io
+    controller:
+      groupKindConcurrency:
+        Job.batch: 5
+        Pod: 5
+        Workload.kueue.x-k8s.io: 5
+        LocalQueue.kueue.x-k8s.io: 1
+        ClusterQueue.kueue.x-k8s.io: 1
+        ResourceFlavor.kueue.x-k8s.io: 1
+    clientConnection:
+      qps: 50
+      burst: 100
