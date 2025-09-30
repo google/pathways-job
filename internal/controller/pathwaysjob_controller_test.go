@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -25,8 +26,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	jobsetv1alpha2 "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	jobsetv1alpha2 "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	pathwaysjobv1 "pathways-job/api/v1"
 )
@@ -115,3 +116,129 @@ var _ = Describe("PathwaysJob Controller", func() {
 		})
 	})
 })
+
+func TestValidateCapacityNodeSelector(t *testing.T) {
+	cases := []struct {
+		desc    string
+		pw      *pathwaysjobv1.PathwaysJob
+		wantErr bool
+	}{
+		{
+			desc: "empty capacity node selector",
+			pw: &pathwaysjobv1.PathwaysJob{
+				Spec: pathwaysjobv1.PathwaysJobSpec{
+					Workers: []pathwaysjobv1.WorkerSpec{
+						{},
+					},
+				},
+			},
+		},
+		{
+			desc: "no colon",
+			pw: &pathwaysjobv1.PathwaysJob{
+				Spec: pathwaysjobv1.PathwaysJobSpec{
+					Workers: []pathwaysjobv1.WorkerSpec{
+						{
+							CapacityNodeSelector: "no colon",
+						},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			desc: "more than 1 colon",
+			pw: &pathwaysjobv1.PathwaysJob{
+				Spec: pathwaysjobv1.PathwaysJobSpec{
+					Workers: []pathwaysjobv1.WorkerSpec{
+						{
+							CapacityNodeSelector: `cloud.google.com/reservation-name:: reservation-name`,
+						},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			desc: "one colon",
+			pw: &pathwaysjobv1.PathwaysJob{
+				Spec: pathwaysjobv1.PathwaysJobSpec{
+					Workers: []pathwaysjobv1.WorkerSpec{
+						{
+							CapacityNodeSelector: `cloud.google.com/reservation-name: reservation-name`,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.desc, func(t *testing.T) {
+			got := validateCapacityNodeSelector(tc.pw)
+			if got == nil && tc.wantErr {
+				t.Error("validateCapacityNodeSelector() = nil, want error")
+			}
+			if got != nil && !tc.wantErr {
+				t.Errorf("validateCapacityNodeSelector() = %v, want nil", got)
+			}
+		})
+	}
+}
+
+func TestMakeCapacityNodeSelector(t *testing.T) {
+	cases := []struct {
+		desc string
+		pw   *pathwaysjobv1.PathwaysJob
+		want bool
+	}{
+		{
+			desc: "flex start",
+			pw: &pathwaysjobv1.PathwaysJob{
+				Spec: pathwaysjobv1.PathwaysJobSpec{
+					Workers: []pathwaysjobv1.WorkerSpec{
+						{
+							CapacityNodeSelector: `cloud.google.com/gke-queued: "true"`,
+						},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			desc: "spot",
+			pw: &pathwaysjobv1.PathwaysJob{
+				Spec: pathwaysjobv1.PathwaysJobSpec{
+					Workers: []pathwaysjobv1.WorkerSpec{
+						{
+							CapacityNodeSelector: `cloud.google.com/gke-spot: "true"`,
+						},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			desc: "reservation",
+			pw: &pathwaysjobv1.PathwaysJob{
+				Spec: pathwaysjobv1.PathwaysJobSpec{
+					Workers: []pathwaysjobv1.WorkerSpec{
+						{
+							CapacityNodeSelector: `cloud.google.com/reservation-name: reservation-name`,
+						},
+					},
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.desc, func(t *testing.T) {
+			_, _, got := makeCapacityNodeSelector(tc.pw)
+			if got != tc.want {
+				t.Errorf("makeCapacityNodeSelector() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
