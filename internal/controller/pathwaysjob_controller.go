@@ -215,14 +215,18 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 		job, _ = MakePathwaysHeadJobForDefaultDeployment(ctx, pw)
 	}
 
+	if err := validateWorkerJob(pw); err != nil {
+		log.Info("PathwaysJob: in validateWorkerJob ", " Error: ", err)
+		return err
+	}
 	workerJob, _ := MakeWorkerJob(ctx, pw)
 	successPolicy := MakeSuccessPolicy(pw)
 
 	mainJobSetConfig := jobsetv1alpha2.JobSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      pw.GetName(),
-			Namespace: pw.GetNamespace(),
-			Labels:    pw.GetObjectMeta().GetLabels(),
+			Name:        pw.GetName(),
+			Namespace:   pw.GetNamespace(),
+			Labels:      pw.GetObjectMeta().GetLabels(),
 			Annotations: pw.GetObjectMeta().GetAnnotations(),
 		},
 		Spec: jobsetv1alpha2.JobSetSpec{
@@ -474,6 +478,45 @@ func makeImageTagUsingPathwaysVersion(pw *pathwaysjob.PathwaysJob) string {
 	return tag
 }
 
+func makeCapacityNodeSelector(pw *pathwaysjob.PathwaysJob) (string, string, bool) {
+	if pw.Spec.Workers[0].CapacityNodeSelector == "" {
+		return "", "", false
+	}
+	capacityAnnotation := strings.Split(pw.Spec.Workers[0].CapacityNodeSelector, ":")
+	return capacityAnnotation[0], capacityAnnotation[1], true
+}
+
+func makeWorkerJobNodeSelector(pw *pathwaysjob.PathwaysJob) map[string]string {
+	ns := map[string]string{
+		"cloud.google.com/gke-tpu-accelerator": GKEAcceleratorType,
+		"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
+	}
+	if key, value, ok := makeCapacityNodeSelector(pw); ok {
+		ns[key] = value
+	}
+	return ns
+}
+
+// validateCapacityNodeSelector validates the capacity node selector annotation.
+func validateCapacityNodeSelector(pw *pathwaysjob.PathwaysJob) error {
+	if pw.Spec.Workers[0].CapacityNodeSelector == "" {
+		return nil
+	}
+	capacityAnnotation := strings.Split(pw.Spec.Workers[0].CapacityNodeSelector, ":")
+	if len(capacityAnnotation) != 2 {
+		return fmt.Errorf("Expect exactly 1 colon in capacity node selector annotation")
+	}
+	return nil
+}
+
+// validateWorkerJob validates if the PathwaysJob can make a valid WorkerJob.
+func validateWorkerJob(pw *pathwaysjob.PathwaysJob) error {
+	if err := validateCapacityNodeSelector(pw); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Construct success policy based on deployment mode and user workload spec.
 func MakeSuccessPolicy(pw *pathwaysjob.PathwaysJob) *jobsetv1alpha2.SuccessPolicy {
 	// Mark the Job successful if pathways-head pod succeeds.
@@ -721,10 +764,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 							}, // end Pathways worker container
 						},
 						InitContainers: initContainers,
-						NodeSelector: map[string]string{
-							"cloud.google.com/gke-tpu-accelerator": GKEAcceleratorType,
-							"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
-						},
+						NodeSelector:   makeWorkerJobNodeSelector(pw),
 						Volumes: []corev1.Volume{
 							{
 								Name: "shared-tmp",
