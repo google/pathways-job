@@ -146,8 +146,10 @@ type WorkerSpec struct {
 	// Priority class for the PathwaysJob workers if kueue is configured on the cluster.
 	PriorityClassName string `json:"priorityClassName,omitempty"`
 
-	// Capacity Node Selector for the PathwaysJob workers.
-	CapacityNodeSelector string `json:"capacityNodeSelector,omitempty"`
+	// NodeSelector is a selector which must be true for the worker to fit on a node.
+	// Selector which must match a node's labels for the worker to be scheduled on that node.
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 }
 
 // The ControllerSpec struct lists the specifications for the

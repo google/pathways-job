@@ -22,7 +22,8 @@ spec:
   - type: ct4p-hightpu-4t
     topology: 2x2x2
     numSlices: 2
-    capacityNodeSelector: "<key>: <value>" # Optional. It should be a valid pair of key and value separated by a colon.
+    nodeSelector:
+      cloud.google.com/reservation-name: reservation-name
   pathwaysDir: "gs://<test-bucket>/tmp" #This bucket needs to be created in advance.
   controller:
     # #Pod template for training, default mode.
