@@ -215,10 +215,6 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 		job, _ = MakePathwaysHeadJobForDefaultDeployment(ctx, pw)
 	}
 
-	if err := validateWorkerJob(pw); err != nil {
-		log.Info("PathwaysJob: in validateWorkerJob ", " Error: ", err)
-		return err
-	}
 	workerJob, _ := MakeWorkerJob(ctx, pw)
 	successPolicy := MakeSuccessPolicy(pw)
 
@@ -478,43 +474,15 @@ func makeImageTagUsingPathwaysVersion(pw *pathwaysjob.PathwaysJob) string {
 	return tag
 }
 
-func makeCapacityNodeSelector(pw *pathwaysjob.PathwaysJob) (string, string, bool) {
-	if pw.Spec.Workers[0].CapacityNodeSelector == "" {
-		return "", "", false
-	}
-	capacityAnnotation := strings.Split(pw.Spec.Workers[0].CapacityNodeSelector, ":")
-	return capacityAnnotation[0], capacityAnnotation[1], true
-}
-
+// makeWorkerJobNodeSelector returns a node selector combined by user specified node selector and other necessary labels.
 func makeWorkerJobNodeSelector(pw *pathwaysjob.PathwaysJob) map[string]string {
-	ns := map[string]string{
-		"cloud.google.com/gke-tpu-accelerator": GKEAcceleratorType,
-		"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
+	ns := pw.Spec.Workers[0].NodeSelector
+	if ns == nil {
+		ns = make(map[string]string)
 	}
-	if key, value, ok := makeCapacityNodeSelector(pw); ok {
-		ns[key] = value
-	}
+	ns["cloud.google.com/gke-tpu-accelerator"] = GKEAcceleratorType
+	ns["cloud.google.com/gke-tpu-topology"] = pw.Spec.Workers[0].Topology
 	return ns
-}
-
-// validateCapacityNodeSelector validates the capacity node selector annotation.
-func validateCapacityNodeSelector(pw *pathwaysjob.PathwaysJob) error {
-	if pw.Spec.Workers[0].CapacityNodeSelector == "" {
-		return nil
-	}
-	capacityAnnotation := strings.Split(pw.Spec.Workers[0].CapacityNodeSelector, ":")
-	if len(capacityAnnotation) != 2 {
-		return fmt.Errorf("Expect exactly 1 colon in capacity node selector annotation")
-	}
-	return nil
-}
-
-// validateWorkerJob validates if the PathwaysJob can make a valid WorkerJob.
-func validateWorkerJob(pw *pathwaysjob.PathwaysJob) error {
-	if err := validateCapacityNodeSelector(pw); err != nil {
-		return err
-	}
-	return nil
 }
 
 // Construct success policy based on deployment mode and user workload spec.
