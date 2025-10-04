@@ -220,9 +220,9 @@ func (r *PathwaysJobReconciler) createJobSet(ctx context.Context, pw *pathwaysjo
 
 	mainJobSetConfig := jobsetv1alpha2.JobSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      pw.GetName(),
-			Namespace: pw.GetNamespace(),
-			Labels:    pw.GetObjectMeta().GetLabels(),
+			Name:        pw.GetName(),
+			Namespace:   pw.GetNamespace(),
+			Labels:      pw.GetObjectMeta().GetLabels(),
 			Annotations: pw.GetObjectMeta().GetAnnotations(),
 		},
 		Spec: jobsetv1alpha2.JobSetSpec{
@@ -474,6 +474,17 @@ func makeImageTagUsingPathwaysVersion(pw *pathwaysjob.PathwaysJob) string {
 	return tag
 }
 
+// makeWorkerJobNodeSelector returns a node selector combined by user specified node selector and other necessary labels.
+func makeWorkerJobNodeSelector(pw *pathwaysjob.PathwaysJob) map[string]string {
+	ns := pw.Spec.Workers[0].NodeSelector
+	if ns == nil {
+		ns = make(map[string]string)
+	}
+	ns["cloud.google.com/gke-tpu-accelerator"] = GKEAcceleratorType
+	ns["cloud.google.com/gke-tpu-topology"] = pw.Spec.Workers[0].Topology
+	return ns
+}
+
 // Construct success policy based on deployment mode and user workload spec.
 func MakeSuccessPolicy(pw *pathwaysjob.PathwaysJob) *jobsetv1alpha2.SuccessPolicy {
 	// Mark the Job successful if pathways-head pod succeeds.
@@ -563,7 +574,7 @@ func MakeResourceManagerContainer(pw *pathwaysjob.PathwaysJob, isInitContainer b
 		Args:            args,
 		Env:             env,
 		Ports:           []corev1.ContainerPort{{ContainerPort: PathwaysRMPort}, {ContainerPort: 29002}},
-		Resources:       corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(8, resource.DecimalSI), "memory": *resource.NewQuantity(16000000000, resource.DecimalSI)}}, // 16GB
+		Resources:       corev1.ResourceRequirements{Limits: corev1.ResourceList{"cpu": *resource.NewQuantity(8, resource.DecimalSI), "memory": *resource.NewQuantity(32000000000, resource.DecimalSI)}}, // 32GB
 	}
 
 	// Init containers can have restartPolicy but regular containers cannot have restartPolicy.
@@ -721,10 +732,7 @@ func MakeWorkerJob(ctx context.Context, pw *pathwaysjob.PathwaysJob) (jobsetv1al
 							}, // end Pathways worker container
 						},
 						InitContainers: initContainers,
-						NodeSelector: map[string]string{
-							"cloud.google.com/gke-tpu-accelerator": GKEAcceleratorType,
-							"cloud.google.com/gke-tpu-topology":    pw.Spec.Workers[0].Topology,
-						},
+						NodeSelector:   makeWorkerJobNodeSelector(pw),
 						Volumes: []corev1.Volume{
 							{
 								Name: "shared-tmp",

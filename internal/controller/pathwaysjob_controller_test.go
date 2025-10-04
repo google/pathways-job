@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"reflect"
+	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -25,8 +27,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	jobsetv1alpha2 "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	jobsetv1alpha2 "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	pathwaysjobv1 "pathways-job/api/v1"
 )
@@ -115,3 +117,102 @@ var _ = Describe("PathwaysJob Controller", func() {
 		})
 	})
 })
+
+func TestMakeWorkerJobNodeSelector(t *testing.T) {
+	cases := []struct {
+		desc string
+		pw   *pathwaysjobv1.PathwaysJob
+		want map[string]string
+	}{
+		{
+			desc: "no user specified node selector",
+			pw: &pathwaysjobv1.PathwaysJob{
+				Spec: pathwaysjobv1.PathwaysJobSpec{
+					Workers: []pathwaysjobv1.WorkerSpec{
+						{
+							Type:     "ct4p-hightpu-4t",
+							Topology: "2x2x2",
+						},
+					},
+				},
+			},
+			want: map[string]string{
+				"cloud.google.com/gke-tpu-accelerator": "tpu-v4-podslice",
+				"cloud.google.com/gke-tpu-topology":    "2x2x2",
+			},
+		},
+		{
+			desc: "reservation",
+			pw: &pathwaysjobv1.PathwaysJob{
+				Spec: pathwaysjobv1.PathwaysJobSpec{
+					Workers: []pathwaysjobv1.WorkerSpec{
+						{
+							Type:     "ct4p-hightpu-4t",
+							Topology: "2x2x2",
+							NodeSelector: map[string]string{
+								"cloud.google.com/reservation-name": "reservation-name",
+							},
+						},
+					},
+				},
+			},
+			want: map[string]string{
+				"cloud.google.com/reservation-name":    "reservation-name",
+				"cloud.google.com/gke-tpu-accelerator": "tpu-v4-podslice",
+				"cloud.google.com/gke-tpu-topology":    "2x2x2",
+			},
+		},
+		{
+			desc: "user specify other labels",
+			pw: &pathwaysjobv1.PathwaysJob{
+				Spec: pathwaysjobv1.PathwaysJobSpec{
+					Workers: []pathwaysjobv1.WorkerSpec{
+						{
+							Type:     "ct4p-hightpu-4t",
+							Topology: "2x2x2",
+							NodeSelector: map[string]string{
+								"key": "value",
+							},
+						},
+					},
+				},
+			},
+			want: map[string]string{
+				"key":                                  "value",
+				"cloud.google.com/gke-tpu-accelerator": "tpu-v4-podslice",
+				"cloud.google.com/gke-tpu-topology":    "2x2x2",
+			},
+		},
+		{
+			desc: "override accelerator and topology",
+			pw: &pathwaysjobv1.PathwaysJob{
+				Spec: pathwaysjobv1.PathwaysJobSpec{
+					Workers: []pathwaysjobv1.WorkerSpec{
+						{
+							Type:     "ct4p-hightpu-4t",
+							Topology: "2x2x2",
+							NodeSelector: map[string]string{
+								"cloud.google.com/gke-tpu-accelerator": "tpu-v6e-slice",
+								"cloud.google.com/gke-tpu-topology":    "2x2",
+							},
+						},
+					},
+				},
+			},
+			want: map[string]string{
+				"cloud.google.com/gke-tpu-accelerator": "tpu-v4-podslice",
+				"cloud.google.com/gke-tpu-topology":    "2x2x2",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.desc, func(t *testing.T) {
+			calculateTPUInfo(context.TODO(), tc.pw)
+			got := makeWorkerJobNodeSelector(tc.pw)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("makeWorkerJobNodeSelector() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
