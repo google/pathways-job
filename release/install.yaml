@@ -8795,7 +8795,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: us-docker.pkg.dev/cloud-tpu-v2-images/pathways-job/pathwaysjob-controller:v0.1.2
+        image: us-docker.pkg.dev/cloud-tpu-v2-images/pathways-job/pathwaysjob-controller:v0.1.3
         imagePullPolicy: Always
         livenessProbe:
           httpGet:

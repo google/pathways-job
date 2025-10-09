@@ -8418,6 +8418,13 @@ spec:
                         Used with elasticSlices.
                       format: int32
                       type: integer
+                    nodeSelector:
+                      additionalProperties:
+                        type: string
+                      description: |-
+                        NodeSelector is a selector which must be true for the worker to fit on a node.
+                        Selector which must match a node's labels for the worker to be scheduled on that node.
+                      type: object
                     numSlices:
                       description: Number of TPU slices requested for the Pathways
                         workers.

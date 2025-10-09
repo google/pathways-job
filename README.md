@@ -29,13 +29,13 @@ The user workload is typically on a Vertex AI notebook, so users can connect to 
 ### Install a released version
 To install the latest released version of PathwaysJob version on your cluster, run the following command:
 ```sh
-VERSION=v0.1.2
+VERSION=v0.1.3
 kubectl apply --server-side -f https://github.com/google/pathways-job/releases/download/$VERSION/install.yaml
 ```
 
 To uninstall the latest released version of PathwaysJob version on your cluster, run the following command:
 ```sh
-VERSION=v0.1.2
+VERSION=v0.1.3
 kubectl delete -f https://github.com/google/pathways-job/releases/download/$VERSION/install.yaml
 ```
 
