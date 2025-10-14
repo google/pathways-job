@@ -209,9 +209,115 @@ func TestMakeWorkerJobNodeSelector(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.desc, func(t *testing.T) {
 			calculateTPUInfo(context.TODO(), tc.pw)
-			got := makeWorkerJobNodeSelector(tc.pw)
+			got := makeTPUNodeSelector(tc.pw)
 			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("makeWorkerJobNodeSelector() = %v, want %v", got, tc.want)
+				t.Errorf("makeTPUNodeSelector() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestConstructTPUVersionFromMachineType(t *testing.T) {
+	cases := []struct {
+		desc        string
+		machineType pathwaysjobv1.MachineType
+		want        string
+	}{
+		{
+			desc:        "7x",
+			machineType: "tpu7x-standard-4t",
+			want:        "tpu7x",
+		},
+		{
+			desc:        "v6e",
+			machineType: "ct6e-standard-4t",
+			want:        "tpuv6e",
+		},
+		{
+			desc:        "invalid",
+			machineType: "invalid-machine-type",
+			want:        "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.desc, func(t *testing.T) {
+			got := constructTPUVersionFromMachineType(tc.machineType)
+			if got != tc.want {
+				t.Errorf("constructTPUVersionFromMachineType() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestConstructGKEAcceleratorTypeFromMachineType(t *testing.T) {
+	cases := []struct {
+		desc        string
+		machineType pathwaysjobv1.MachineType
+		want        string
+	}{
+		{
+			desc:        "7x",
+			machineType: "tpu7x-standard-4t",
+			want:        "tpu7x",
+		},
+		{
+			desc:        "v6e",
+			machineType: "ct6e-standard-4t",
+			want:        "tpu-v6e-slice",
+		},
+		{
+			desc:        "invalid",
+			machineType: "invalid-machine-type",
+			want:        "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.desc, func(t *testing.T) {
+			got := constructGKEAcceleratorTypeFromMachineType(tc.machineType)
+			if got != tc.want {
+				t.Errorf("constructGKEAcceleratorTypeFromMachineType() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidateTPUTopologyWithWorkerType(t *testing.T) {
+	cases := []struct {
+		desc        string
+		machineType pathwaysjobv1.MachineType
+		topology    string
+		want        string
+	}{
+		{
+			desc:        "7x",
+			machineType: "tpu7x-standard-4t",
+			topology:    "16x24x24",
+			want:        "16x24x24",
+		},
+		{
+			desc:        "7x invalid",
+			machineType: "tpu7x-standard-4t",
+			topology:    "16*24*24",
+			want:        "",
+		},
+		{
+			desc:        "v6e",
+			machineType: "ct6e-standard-4t",
+			topology:    "16x16",
+			want:        "16x16",
+		},
+		{
+			desc:        "v6e invalid",
+			machineType: "ct6e-standard-4t",
+			topology:    "16x15",
+			want:        "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.desc, func(t *testing.T) {
+			got, _ := validateTPUTopologyWithWorkerType(context.TODO(), tc.machineType, tc.topology)
+			if got != tc.want {
+				t.Errorf("validateTPUTopologyWithWorkerType() = %v, want %v", got, tc.want)
 			}
 		})
 	}

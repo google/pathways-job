@@ -102,10 +102,12 @@ const (
 	Default                 DeploymentMode = "default"
 )
 
-// +kubebuilder:validation:Enum=ct6e-standard-4t;ct6e-standard-8t;ct5p-hightpu-4t;ct5lp-hightpu-4t;ct5lp-hightpu-8t;ct4p-hightpu-4t
+// +kubebuilder:validation:Enum=tpu7x-standard-4t;ct6e-standard-4t;ct6e-standard-8t;ct5p-hightpu-4t;ct5lp-hightpu-4t;ct5lp-hightpu-8t;ct4p-hightpu-4t
 type MachineType string
 
 const (
+	// 7x
+	Tpu7x_standard_4t MachineType = "tpu7x-standard-4t"
 	// v6e
 	Ct6e_standard_4t MachineType = "ct6e-standard-4t"
 	Ct6e_standard_8t MachineType = "ct6e-standard-8t"
