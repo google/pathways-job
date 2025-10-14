@@ -8452,6 +8452,7 @@ spec:
                         It will translate to a nodeSelector of the form
                         cloud.google.com/gke-tpu-accelerator: tpu-v5-lite-podslice
                       enum:
+                      - tpu7x-standard-4t
                       - ct6e-standard-4t
                       - ct6e-standard-8t
                       - ct5p-hightpu-4t
