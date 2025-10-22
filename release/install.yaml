@@ -8460,6 +8460,7 @@ spec:
                         It will translate to a nodeSelector of the form
                         cloud.google.com/gke-tpu-accelerator: tpu-v5-lite-podslice
                       enum:
+                      - tpu7x-standard-4t
                       - ct6e-standard-4t
                       - ct6e-standard-8t
                       - ct5p-hightpu-4t
@@ -8837,7 +8838,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: us-docker.pkg.dev/cloud-tpu-v2-images/pathways-job/pathwaysjob-controller:v0.1.3
+        image: us-docker.pkg.dev/cloud-tpu-v2-images/pathways-job/pathwaysjob-controller:v0.1.4
         imagePullPolicy: Always
         livenessProbe:
           httpGet:
