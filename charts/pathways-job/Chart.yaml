@@ -1,0 +1,6 @@
+apiVersion: v2
+name: pathways-job-chart
+description: A Helm chart for deploying the PathwaysJob controller on Kubernetes.
+type: application
+version: 0.1.2
+appVersion: "0.1.2"
