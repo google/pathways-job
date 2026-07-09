@@ -1,3 +1,6 @@
+# Deprecation Notice
+PathwaysJob has been deprecated in favor of direct jobsets. Please refer to https://docs.cloud.google.com/ai-hypercomputer/docs/workloads/pathways-on-cloud/batch-workload#run_a_batch_workload_using_xpk 
+
 # pathways-job
 PathwaysJob API is an OSS Kubernetes-native API, to deploy ML training and batch inference workloads, using Pathways on GKE. 
 
